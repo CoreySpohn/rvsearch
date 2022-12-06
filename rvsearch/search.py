@@ -159,26 +159,42 @@ class Search(object):
 
         flat_bic = post3.likelihood.bic()
 
+        keys = ['dvdt', 'curv']
         if (trend_bic < flat_bic - 5) or (trend_curve_bic < flat_bic - 5):
             if trend_curve_bic < trend_bic - 5:
                 # Quadratic
-                self.post.params['dvdt'].value = post1.params['dvdt'].value
-                self.post.params['curv'].value = post1.params['curv'].value
-                self.post.params['dvdt'].vary  = True
-                self.post.params['curv'].vary  = True
+                for key in keys:
+                    vind = self.post.vector.indices[key]
+                    self.post.vector.vector[vind, 0] = post1.vector.vector[key, 0]
+                    self.post.vector.vector[vind, 1] = post1.vector.vector[key, 1]
+                # self.post.params["dvdt"].value = post1.params["dvdt"].value
+                # self.post.params["curv"].value = post1.params["curv"].value
+                # self.post.params["dvdt"].vary = True
+                # self.post.params["curv"].vary = True
             else:
                 # Linear
-                self.post.params['dvdt'].value = post2.params['dvdt'].value
-                self.post.params['curv'].value = 0
-                self.post.params['dvdt'].vary  = True
-                self.post.params['curv'].vary  = False
+                vind_dvdt = self.post.vector.indices['dvdt']
+                self.post.vector.vector[vind_dvdt, 0] = post2.params["dvdt"].value
+                self.post.vector.vector[vind_dvdt, 1] = True
+                vind_curv = self.post.vector.indices['curv']
+                self.post.vector.vector[vind_curv, 0] = 0
+                self.post.vector.vector[vind_curv, 1] = False
+                # self.post.params["dvdt"].value = post2.params["dvdt"].value
+                # self.post.params["curv"].value = 0
+                # self.post.params["dvdt"].vary = True
+                # self.post.params["curv"].vary = False
         else:
             # Flat
-            self.post.params['dvdt'].value = 0
-            self.post.params['curv'].value = 0
-            self.post.params['dvdt'].vary  = False
-            self.post.params['curv'].vary  = False
-
+            for key in keys:
+                vind = self.post.vector.indices[key]
+                self.post.vector.vector[vind, 0] = 0
+                self.post.vector.vector[vind, 1] = False
+            # self.post.params["dvdt"].value = 0
+            # self.post.params["curv"].value = 0
+            # self.post.params["dvdt"].vary = False
+            # self.post.params["curv"].vary = False
+        self.post.vector.vector_to_dict()
+        self.post.list_vary_params()
 
     def add_planet(self):
         """Add parameters for one more planet to posterior.
@@ -280,27 +296,50 @@ class Search(object):
         """Perform a max-likelihood fit with all parameters free.
 
         """
-        for n in np.arange(1, self.num_planets+1):
+        keys = ['k', 'tc', 'per', 'secosw', 'sesinw']
+        for n in np.arange(1, self.num_planets + 1):
             # Respect setup planet fixed eccentricity and period.
             if n <= self.setup_planets:
-                self.post.params['k{}'.format(n)].vary = self.params_init['k{}'.format(n)].vary
-                self.post.params['tc{}'.format(n)].vary = self.params_init['tc{}'.format(n)].vary
-                self.post.params['per{}'.format(n)].vary = self.params_init['per{}'.format(n)].vary
-                self.post.params['secosw{}'.format(n)].vary = self.params_init['secosw{}'.format(n)].vary
-                self.post.params['sesinw{}'.format(n)].vary = self.params_init['sesinw{}'.format(n)].vary
+                for key in keys:
+                    vind = self.post.vector.indices[f"{key}{n}"]
+                    vary_val = self.params_init[f"{key}{n}"].vary
+                    self.post.vector.vector[vind, 1] = vary_val
+                # self.post.params["k{}".format(n)].vary = self.params_init[
+                #     "k{}".format(n)
+                # ].vary
+                # self.post.params["tc{}".format(n)].vary = self.params_init[
+                #     "tc{}".format(n)
+                # ].vary
+                # self.post.params["per{}".format(n)].vary = self.params_init[
+                #     "per{}".format(n)
+                # ].vary
+                # self.post.params["secosw{}".format(n)].vary = self.params_init[
+                #     "secosw{}".format(n)
+                # ].vary
+                # self.post.params["sesinw{}".format(n)].vary = self.params_init[
+                #     "sesinw{}".format(n)
+                # ].vary
             else:
-                self.post.params['k{}'.format(n)].vary = True
-                self.post.params['tc{}'.format(n)].vary = True
-                self.post.params['per{}'.format(n)].vary = True
-                self.post.params['secosw{}'.format(n)].vary = True
-                self.post.params['sesinw{}'.format(n)].vary = True
+                for key in keys:
+                    vind = self.post.vector.indices[f"{key}{n}"]
+                    self.post.vector.vector[vind, 1] = True
+                # self.post.params["k{}".format(n)].vary = True
+                # self.post.params["tc{}".format(n)].vary = True
+                # self.post.params["per{}".format(n)].vary = True
+                # self.post.params["secosw{}".format(n)].vary = True
+                # self.post.params["sesinw{}".format(n)].vary = True
 
+        self.post.vector.vector_to_dict()
+        self.post.list_vary_params()
         if self.polish:
             # Make a finer, narrow period grid, and search with eccentricity.
-            self.post.params['per{}'.format(self.num_planets)].vary = False
+            # self.post.params["per{}".format(self.num_planets)].vary = False
+            vind = self.post.vector.indices[f'per{self.num_planets}']
+            self.post.vector.vector[vind, 1] = False
             default_pdict = {}
-            for k in self.post.params.keys():
-                default_pdict[k] = self.post.params[k].value
+            for param in self.post.vector.params:
+                default_pdict[param] = self.post.vector.params[param].value
+                # default_pdict[k] = self.post.vector.params[k].value
             polish_params = []
             polish_bics = []
             peak = np.argmax(self.periodograms[self.num_planets-1])
@@ -317,9 +356,15 @@ class Search(object):
             power = []
             for per in subgrid:
                 for k in default_pdict.keys():
-                    self.post.params[k].value = default_pdict[k]
-                perkey = 'per{}'.format(self.num_planets)
-                self.post.params[perkey].value = per
+                    vind = self.post.vector.indices[k]
+                    self.post.vector.vector[vind, 0] = default_pdict[k]
+                    # self.post.params[k].value = default_pdict[k]
+                self.post.vector.vector_to_dict()
+                self.post.list_vary_params()
+                vind = self.post.vector.indices[f'per{self.num_planets}']
+                self.post.vector.vector[vind, 0] = per
+                # perkey = "per{}".format(self.num_planets)
+                # self.post.params[perkey].value = per
 
                 fit = radvel.fitting.maxlike_fitting(self.post, verbose=False)
                 power.append(-fit.likelihood.bic())
@@ -332,18 +377,29 @@ class Search(object):
             fit_index = np.argmax(power)
             bestfit_params = fit_params[fit_index]
             for k in self.post.params.keys():
-                self.post.params[k].value = bestfit_params[k]
-            self.post.params['per{}'.format(self.num_planets)].vary = True
+                vind = self.post.vector.indices[k]
+                self.post.vector.vector[vind, 0] = bestfit_params[k]
+                # self.post.params[k].value = bestfit_params[k]
+            vind = self.post.vector.indices[f'per{self.num_planets}']
+            self.post.vector.vector[vind, 1] = True
+            # self.post.params["per{}".format(self.num_planets)].vary = True
 
+        self.post.vector.vector_to_dict()
+        self.post.list_vary_params()
         self.post = radvel.fitting.maxlike_fitting(self.post, verbose=False)
 
         if self.fix:
-            for n in np.arange(1, self.num_planets+1):
-                self.post.params['per{}'.format(n)].vary = False
-                self.post.params['k{}'.format(n)].vary = False
-                self.post.params['tc{}'.format(n)].vary = False
-                self.post.params['secosw{}'.format(n)].vary = False
-                self.post.params['sesinw{}'.format(n)].vary = False
+            for n in np.arange(1, self.num_planets + 1):
+                for key in keys:
+                    vind = self.post.vector.indices[f"{key}{n}"]
+                    self.post.vector.vector[vind, 1] = False
+                # self.post.params["per{}".format(n)].vary = False
+                # self.post.params["k{}".format(n)].vary = False
+                # self.post.params["tc{}".format(n)].vary = False
+                # self.post.params["secosw{}".format(n)].vary = False
+                # self.post.params["sesinw{}".format(n)].vary = False
+            self.post.vector.vector_to_dict()
+            self.post.list_vary_params()
 
     def save(self, filename='post_final.pkl'):
         """Pickle current posterior.
@@ -381,11 +437,23 @@ class Search(object):
             planets = np.arange(1, self.num_planets+1)
             yres = copy.deepcopy(y)
             for p in planets[planets != n]:
-                orbel = [self.post.params['per{}'.format(p)].value,
-                         self.post.params['tp{}'.format(p)].value,
-                         self.post.params['e{}'.format(p)].value,
-                         self.post.params['w{}'.format(p)].value,
-                         self.post.params['k{}'.format(p)].value]
+                try:
+                    orbel = [
+                        self.post.params["per{}".format(p)].value,
+                        self.post.params["tp{}".format(p)].value,
+                        self.post.params["e{}".format(p)].value,
+                        self.post.params["w{}".format(p)].value,
+                        self.post.params["k{}".format(p)].value,
+                    ]
+                except KeyError:
+                    synth_basis = self.post.params.basis.to_synth(self.post.params)
+                    orbel = [
+                        synth_basis["per{}".format(p)].value,
+                        synth_basis["tp{}".format(p)].value,
+                        synth_basis["e{}".format(p)].value,
+                        synth_basis["w{}".format(p)].value,
+                        synth_basis["k{}".format(p)].value,
+                    ]
                 yres -= radvel.kepler.rv_drive(x, orbel)
             # Make small period grid. Figure out proper spacing.
             per = self.post.params['per{}'.format(n)].value
@@ -456,29 +524,40 @@ class Search(object):
             if perioder.best_bic > perioder.bic_thresh:
                 self.num_planets += 1
                 for k in self.post.params.keys():
-                    self.post.params[k].value = perioder.bestfit_params[k]
+                    vind = self.post.vector.indices[k]
+                    self.post.vector.vector[vind, 0] = perioder.bestfit_params[k]
+                    # self.post.params[k].value = perioder.bestfit_params[k]
 
                 # Generalize tc reset to each new discovery.
-                tckey = 'tc{}'.format(self.num_planets)
-                if self.post.params[tckey].value < np.amin(self.data.time):
-                    self.post.params[tckey].value = np.median(self.data.time)
-                    for n in np.arange(1, self.num_planets+1):
-                        self.post.params['k{}'.format(n)].vary = False
-                        self.post.params['per{}'.format(n)].vary = False
-                        self.post.params['secosw{}'.format(n)].vary = False
-                        self.post.params['secosw{}'.format(n)].vary = False
+                tckey = f"tc{self.num_planets}"
+                tcvind = self.post.vector.indices[tckey]
+                keys = ['k', 'per', 'secosw', 'sesinw', 'tc']
+                # if self.post.params[tckey].value < np.amin(self.data.time)
+                if self.post.vector.vector[tcvind, 0] < np.amin(self.data.time):
+                    self.post.vector.vector[tcvind, 0] = np.median(self.data.time)
+                    for n in np.arange(1, self.num_planets + 1):
+                        for key in keys:
+                            vind = self.post.vector.indices[f'{key}{n}']
+                            self.post.vector.vector[vind, 1] = False
                         if n != self.num_planets:
-                            self.post.params['tc{}'.format(n)].vary = False
+                            vind = self.post.vector.indices[f'tc{n}']
+                            self.post.vector.vector[vind, 1] = False
 
-                    self.post = radvel.fitting.maxlike_fitting(self.post,
-                                                               verbose=False)
+                    self.post.vector.vector_to_dict()
+                    self.post.list_vary_params()
+                    self.post = radvel.fitting.maxlike_fitting(self.post, verbose=False)
 
-                    for n in np.arange(1, self.num_planets+1):
-                        self.post.params['k{}'.format(n)].vary = True
-                        self.post.params['per{}'.format(n)].vary = True
-                        self.post.params['secosw{}'.format(n)].vary = True
-                        self.post.params['secosw{}'.format(n)].vary = True
-                        self.post.params['tc{}'.format(n)].vary = True
+                    for n in np.arange(1, self.num_planets + 1):
+                        for key in keys:
+                            vind = self.post.vector.indices[f'{key}{n}']
+                            self.post.vector.vector[vind, 1] = True
+                        # self.post.params["k{}".format(n)].vary = True
+                        # self.post.params["per{}".format(n)].vary = True
+                        # self.post.params["secosw{}".format(n)].vary = True
+                        # self.post.params["secosw{}".format(n)].vary = True
+                        # self.post.params["tc{}".format(n)].vary = True
+                    self.post.vector.vector_to_dict()
+                    self.post.list_vary_params()
 
                 self.fit_orbit()
                 self.all_params.append(self.post.params)
@@ -495,7 +574,9 @@ class Search(object):
             for key in self.post.params.keys():
                 if 'jit' in key:
                     if self.post.params[key].value < 0:
-                        self.post.params[key].value = -self.post.params[key].value
+                        vind = self.post.vector.indices[key]
+                        self.post.vector.vector[vind, 0] = -self.post.params[key].value
+                        # self.post.params[key].value = -self.post.params[key].value
 
             # Generate an orbit plot.
             if self.save_outputs:
@@ -521,27 +602,74 @@ class Search(object):
             if os.cpu_count() < nensembles:
                 nensembles = os.cpu_count()
             # Set custom mcmc scales for e/w parameters.
-            for n in np.arange(1, self.num_planets+1):
-                self.post.params['secosw{}'.format(n)].mcmcscale = 0.005
-                self.post.params['sesinw{}'.format(n)].mcmcscale = 0.005
+            for n in np.arange(1, self.num_planets + 1):
+                for key in ['secosw', 'sesinw']:
+                    vind = self.post.vector.indices[f"{key}{n}"]
+                    self.post.vector.vector[vind, 2] = 0.005
+                # self.post.params["secosw{}".format(n)].mcmcscale = 0.005
+                # self.post.params["sesinw{}".format(n)].mcmcscale = 0.005
 
+            self.post.vector.vector_to_dict()
+            self.post.list_vary_params()
             # Sample in log-period space.
             logpost = copy.deepcopy(self.post)
             logparams = logpost.params.basis.to_any_basis(
-                        logpost.params, 'logper tc secosw sesinw k')
-            logpost = utils.initialize_post(self.data, params=logparams)
+                logpost.params, "logper tc secosw sesinw k"
+            )
+            # logpost = utils.initialize_post(self.data, params=logparams)
+            logpost = utils.initialize_post(self.data, params=logparams, priors=self.post.priors)
 
             # Run MCMC. #self.post #logpost
-            chains = radvel.mcmc(logpost, nwalkers=50, nrun=25000, burnGR=1.03,
-                                 maxGR=1.0075, minTz=2000, minAfactor=15,
-                                 maxArchange=0.07, burnAfactor=15,
-                                 minsteps=12500, minpercent=50, thin=5,
-                                 save=False, ensembles=nensembles)
+            # if timeout is not None:
+            #     attempts = 0
+            #     success = False
+            #     while (attempts < 2) and (not success):
+            #         # attempt MCMC 3 times in the allowed timeout
+            #         manager = Manager()
+            #         savename = f'{outdir}/chains_{attempts}.h5'
+            #         return_dict = manager.dict()
+            #         p = Process(target=utils.mcmc_call, args=(logpost, nensembles, savename, return_dict))
+            #         print(f"Running MCMC with timeout in {timeout} minutes")
+            #         p.start()
+            #         # Wait for timeout or success
+            #         p.join(60*timeout)
+            #         if p.is_alive():
+            #             print(f"MCMC attempt {attempts+1} didn't succeed in allowed time, exiting")
+            #             p.kill()
+            #             attempts += 1
+            #         else:
+            #             chains = return_dict.values()[0]
+            #             success = True
+            #     if not success:
+            #         # Load the chains that were created and didn't converge
+            #         chains = h5py.file(savename, 'r')
+            # else:
+            # savename = outdir + "/chains.h5"
+            chains = radvel.mcmc(
+                logpost,
+                nwalkers=50,
+                nrun=2000,
+                burnGR=1.03,
+                maxGR=1.0075,
+                minTz=2000,
+                minAfactor=15,
+                maxArchange=0.07,
+                burnAfactor=15,
+                minsteps=1000,
+                minpercent=50,
+                # thin=5,
+                # save=True,
+                # savename=savename,
+                ensembles=nensembles,
+                headless=True
+            )
 
             # Convert chains to per, e, w basis.
             synthchains = logpost.params.basis.to_synth(chains)
             synthquants = synthchains.quantile([0.159, 0.5, 0.841])
             logpost = None
+            # Get posterior object w/ 'e' and 'w' parameters
+            synthpost = self.post.params.basis.to_synth(self.post.params)
 
             # Compress, thin, and save chains, in fitting and synthetic bases.
             csvfn = outdir + '/chains.csv.tar.bz2'
@@ -562,7 +690,8 @@ class Search(object):
                 err_e  = radvel.utils.round_sig(err_e)
                 med_e, err_e, errhigh_e = radvel.utils.sigfig(med_e, err_e)
                 max_e, err_e, errhigh_e = radvel.utils.sigfig(
-                                          self.post.params[e_key].value, err_e)
+                    synthpost[e_key].value, err_e
+                )
 
                 med_w  = synthquants[w_key][0.5]
                 high_w = synthquants[w_key][0.841] - med_w
@@ -571,7 +700,8 @@ class Search(object):
                 err_w  = radvel.utils.round_sig(err_w)
                 med_w, err_w, errhigh_w = radvel.utils.sigfig(med_w, err_w)
                 max_w, err_w, errhigh_w = radvel.utils.sigfig(
-                                          self.post.params[w_key].value, err_w)
+                    synthpost[w_key].value, err_w
+                )
 
                 self.post.uparams[e_key]   = err_e
                 self.post.uparams[w_key]   = err_w
@@ -665,14 +795,20 @@ class Search(object):
             thresh = None
 
         # Fix parameters of all known planets.
+        keys = ['per', 'tc', 'k', 'secosw', 'sesinw']
         if self.num_planets != 0:
             for n in np.arange(self.num_planets):
-                self.post.params['per{}'.format(n+1)].vary    = False
-                self.post.params['tc{}'.format(n+1)].vary     = False
-                self.post.params['k{}'.format(n+1)].vary      = False
-                self.post.params['secosw{}'.format(n+1)].vary = False
-                self.post.params['sesinw{}'.format(n+1)].vary = False
+                for key in keys:
+                    vind = self.post.vector.indices[f'{key}{n}']
+                    self.post.vector.vector[vind, 1] = False
+                # self.post.params["per{}".format(n + 1)].vary = False
+                # self.post.params["tc{}".format(n + 1)].vary = False
+                # self.post.params["k{}".format(n + 1)].vary = False
+                # self.post.params["secosw{}".format(n + 1)].vary = False
+                # self.post.params["sesinw{}".format(n + 1)].vary = False
 
+        self.post.vector.vector_to_dict()
+        self.post.list_vary_params()
         self.run_search(fixed_threshold=thresh, mkoutdir=False, running=running)
 
     def inject_recover(self, injected_orbel, num_cpus=None, full_grid=False):

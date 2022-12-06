@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import astropy.stats
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
+import numpy as np
 
 import radvel
 import radvel.fitting
@@ -17,6 +18,7 @@ from itertools import repeat
 from functools import partial
 
 import rvsearch.utils as utils
+from scipy._lib._util import MapWrapper
 
 
 class TqdmUpTo(tqdm):
@@ -164,24 +166,42 @@ class Periodogram(object):
         if self.verbose:
             print("Calculating BIC periodogram for {} planets vs. {} planets".format(plstr, prvstr))
         # This assumes nth planet parameters, and all periods, are fixed.
+        keys = ['per', 'tc', 'k', 'secosw', 'sesinw']
         if self.basebic is None:
             # Handle the case where there are no known planets.
-            if self.post.params.num_planets == 1 and self.post.params['k1'].value == 0.:
-                self.post.params['per'+plstr].vary = False
-                self.post.params['tc'+plstr].vary = False
-                self.post.params['k'+plstr].vary = False
-                self.post.params['secosw'+plstr].vary = False
-                self.post.params['sesinw'+plstr].vary = False
+            if (
+                self.post.params.num_planets == 1
+                and self.post.params["k1"].value == 0.0
+            ):
+                for key in keys:
+                    vind = self.post.vector.indices[f'{key}{plstr}']
+                    self.post.vector.vector[vind, 1] = False
+                # self.post.params["per" + plstr].vary = False
+                # self.post.params["tc" + plstr].vary = False
+                # self.post.params["k" + plstr].vary = False
+                # self.post.params["secosw" + plstr].vary = False
+                # self.post.params["sesinw" + plstr].vary = False
                 # Vary ONLY gamma, jitter, dvdt, curv. All else fixed, and k=0
+                self.post.list_vary_params()
                 baseline_fit = radvel.fitting.maxlike_fitting(self.post, verbose=False)
                 baseline_bic = baseline_fit.likelihood.bic()
             # Handle the case where there is at least one known planet.
             else:
-                self.post.params['per{}'.format(self.num_known_planets+1)].vary = False
-                self.post.params['tc{}'.format(self.num_known_planets+1)].vary = False
-                self.post.params['k{}'.format(self.num_known_planets+1)].vary = False
-                self.post.params['secosw{}'.format(self.num_known_planets+1)].vary = False
-                self.post.params['sesinw{}'.format(self.num_known_planets+1)].vary = False
+                for key in keys:
+                    vind = self.post.vector.indices[f'{key}{self.num_known_planets+1}']
+                    self.post.vector.vector[vind, 1] = False
+                # self.post.params[
+                #     "per{}".format(self.num_known_planets + 1)
+                # ].vary = False
+                # self.post.params["tc{}".format(self.num_known_planets + 1)].vary = False
+                # self.post.params["k{}".format(self.num_known_planets + 1)].vary = False
+                # self.post.params[
+                #     "secosw{}".format(self.num_known_planets + 1)
+                # ].vary = False
+                # self.post.params[
+                #     "sesinw{}".format(self.num_known_planets + 1)
+                # ].vary = False
+                self.post.list_vary_params()
                 baseline_bic = self.post.likelihood.bic()
         else:
             baseline_bic = self.basebic
@@ -190,68 +210,33 @@ class Periodogram(object):
         self.default_pdict['k{}'.format(self.post.params.num_planets)] = rms
 
         # Allow amplitude and time offset to vary, fix period (and ecc. if asked.)
-        self.post.params['per{}'.format(self.num_known_planets+1)].vary = False
+        nplan = self.num_known_planets
+        vind = self.post.vector.indices[f'per{nplan+1}']
+        self.post.vector.vector[vind, 1] = False
+        # self.post.params["per{}".format(self.num_known_planets + 1)].vary = False
+        keys = ['secosw', 'sesinw']
         if self.eccentric == True:
             # If eccentric set to True, Free eccentricity.
-            self.post.params['secosw{}'.format(self.num_known_planets+1)].vary = True
-            self.post.params['sesinw{}'.format(self.num_known_planets+1)].vary = True
+            for key in keys:
+                vind = self.post.vector.indices[f'{key}{nplan+1}']
+                self.post.vector.vector[vind, 1] = True
+            # self.post.params["secosw{}".format(self.num_known_planets + 1)].vary = True
+            # self.post.params["sesinw{}".format(self.num_known_planets + 1)].vary = True
         else:
             # If eccentric set to False, fix eccentricity to zero.
-            self.post.params['secosw{}'.format(self.num_known_planets+1)].vary = False
-            self.post.params['sesinw{}'.format(self.num_known_planets+1)].vary = False
+            for key in keys:
+                vind = self.post.vector.indices[f'{key}{nplan+1}']
+                self.post.vector.vector[vind, 1] = False
+            # self.post.params["secosw{}".format(self.num_known_planets + 1)].vary = False
+            # self.post.params["sesinw{}".format(self.num_known_planets + 1)].vary = False
 
-        self.post.params['k{}'.format(self.num_known_planets+1)].vary  = True
-        self.post.params['tc{}'.format(self.num_known_planets+1)].vary = True
-
-        # Divide period grid into as many subgrids as there are parallel workers.
-        self.sub_pers = np.array_split(self.pers, self.workers)
-
-        # Define a function to compute periodogram for a given grid section.
-        def _fit_period(n):
-            post = copy.deepcopy(self.post)
-            per_array = self.sub_pers[n]
-            fit_params = [{} for x in range(len(per_array))]
-            bic = np.zeros_like(per_array)
-
-            for i, per in enumerate(per_array):
-                # Reset posterior parameters to default values.
-                for k in self.default_pdict.keys():
-                    post.params[k].value = self.default_pdict[k]
-                perkey = 'per{}'.format(self.num_known_planets+1)
-                post.params[perkey].value = per
-                post = radvel.fitting.maxlike_fitting(post, verbose=False)
-                bic[i] = baseline_bic - post.likelihood.bic()
-
-                if bic[i] < self.floor - 1:
-                    # If the fit is bad, reset k_n+1 = 0 and try again.
-                    for k in self.default_pdict.keys():
-                        post.params[k].value = self.default_pdict[k]
-                    post.params[perkey].value = per
-                    post.params['k{}'.format(post.params.num_planets)].value = 0
-                    post = radvel.fitting.maxlike_fitting(post, verbose=False)
-                    bic[i] = baseline_bic - post.likelihood.bic()
-
-                if bic[i] < self.floor - 1:
-                    # If the fit is still bad, reset tc to better value and try again.
-                    for k in self.default_pdict.keys():
-                        post.params[k].value = self.default_pdict[k]
-                    veldiff = np.absolute(post.likelihood.y - np.median(post.likelihood.y))
-                    tc_new = self.times[np.argmin(veldiff)]
-                    post.params['tc{}'.format(post.params.num_planets)].value = tc_new
-                    post = radvel.fitting.maxlike_fitting(post, verbose=False)
-                    bic[i] = baseline_bic - post.likelihood.bic()
-
-                # Append the best-fit parameters to the period-iterated list.
-                best_params = {}
-                for k in post.params.keys():
-                    best_params[k] = post.params[k].value
-                fit_params[i] = best_params
-
-                if self.verbose:
-                    counter.value += 1
-                    pbar.update_to(counter.value)
-
-            return (bic, fit_params)
+        vind = self.post.vector.indices[f'k{nplan+1}']
+        self.post.vector.vector[vind, 1] = True
+        vind = self.post.vector.indices[f'tc{nplan+1}']
+        self.post.vector.vector[vind, 1] = True
+        self.post.list_vary_params()
+        # self.post.params["k{}".format(self.num_known_planets + 1)].vary = True
+        # self.post.params["tc{}".format(self.num_known_planets + 1)].vary = True
 
         if self.verbose:
             global pbar
@@ -260,25 +245,26 @@ class Periodogram(object):
             counter = Value('i', 0, lock=True)
             pbar = TqdmUpTo(total=len(self.pers), position=0)
 
-        if self.workers == 1:
-            # Call the periodogram loop on one core.
-            self.bic, self.fit_params = _fit_period(0)
-        else:
-            # Parallelize the loop over sections of the period grid.
-            p = mp.Pool(processes=self.workers)
-            output = p.map(_fit_period, (np.arange(self.workers)))
+        # Set up the arguments used for the parallelization
+        postcopy = copy.deepcopy(self.post)
+        default_pdict = self.default_pdict
+        nplan = self.num_known_planets
+        floor = self.floor
+        times = self.times
+        args = (postcopy, baseline_bic, default_pdict, nplan, floor, times)
 
-            # Sort output.
-            all_bics = []
-            all_params = []
-            for chunk in output:
-                all_bics.append(chunk[0])
-                all_params.append(chunk[1])
-            self.bic = [y for x in all_bics for y in x]
-            self.fit_params = [y for x in all_params for y in x]
+        func = _obj_wrapper(_obj, args)
+        with MapWrapper(pool=self.workers) as mapper:
+            output = mapper(func, self.pers)
 
-            # Close the pool object.
-            p.close()
+        # Sort output.
+        all_bics = []
+        all_params = []
+        for chunk in output:
+            all_bics.append(chunk[0])
+            all_params.append(chunk[1])
+        self.bic = all_bics
+        self.fit_params = all_params
 
         fit_index = np.argmax(self.bic)
         self.bestfit_params = self.fit_params[fit_index]
@@ -404,3 +390,67 @@ class Periodogram(object):
         self.fig = fig
         if save:
             fig.savefig('dbic{}.pdf'.format(self.num_known_planets+1))
+
+
+def _obj(per, post, baseline_bic, default_pdict, nplan, floor, times):
+    '''
+    Objective function for the BIC periodogram search
+    '''
+    # post = copy.deepcopy(post)
+    # Reset posterior parameters to default values.
+    for k in default_pdict.keys():
+        post.params[k].value = default_pdict[k]
+    perkey = f"per{nplan+1}"
+    vector_ind = post.vector.indices[perkey]
+    post.vector.vector[vector_ind, 0] = per
+    post.list_vary_params()
+    newpost = radvel.fitting.maxlike_fitting(post, verbose=False)
+    bic = baseline_bic - newpost.likelihood.bic()
+
+    if bic < floor - 1:
+        # If the fit is bad, reset k_n+1 = 0 and try again.
+        for k in default_pdict.keys():
+            newpost.params[k].value = default_pdict[k]
+        utils.set_post_param(newpost, perkey, per)
+        utils.set_post_param(newpost, f"k{nplan}", 0)
+        newpost.list_vary_params()
+        newpost = radvel.fitting.maxlike_fitting(newpost, verbose=False)
+        bic = baseline_bic - newpost.likelihood.bic()
+
+    if bic < floor - 1:
+        # If the fit is still bad, reset tc to better value and try again.
+        for k in default_pdict.keys():
+            utils.set_post_param(newpost, k, default_pdict[k])
+            # post.params[k].value = self.default_pdict[k]
+        veldiff = np.absolute(
+            newpost.likelihood.y - np.median(newpost.likelihood.y)
+        )
+        tc_new = times[np.argmin(veldiff)]
+        # post.params["tc{}".format(post.params.num_planets)].value = tc_new
+        utils.set_post_param(newpost, f"tc{newpost.params.num_planets}", tc_new)
+        newpost.list_vary_params()
+        newpost = radvel.fitting.maxlike_fitting(newpost, verbose=False)
+        bic = baseline_bic - newpost.likelihood.bic()
+
+    best_params = {}
+    for k in newpost.params.keys():
+        best_params[k] = newpost.params[k].value
+    fit_params = best_params
+    # Append the best-fit parameters to the period-iterated list.
+    counter.value += 1
+    pbar.update_to(counter.value)
+
+    return (bic, fit_params)
+
+
+class _obj_wrapper:
+    """
+    Object to wrap the objective function with it's arguments
+    """
+
+    def __init__(self, f, args):
+        self.f = f
+        self.args = args
+
+    def __call__(self, x):
+        return self.f(np.asarray(x), *self.args)

@@ -384,3 +384,8 @@ values. Interpret posterior with caution.".format(num_nan, nan_perc))
     print("Derived parameters:", outcols)
 
     return post
+
+
+def set_post_param(post, param_name, val):
+    vector_ind = post.vector.indices[param_name]
+    post.vector.vector[vector_ind, 0] = val
