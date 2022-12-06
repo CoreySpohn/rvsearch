@@ -134,9 +134,6 @@ class Periodogram(object):
         num_freq *= self.oversampling
         num_freq  = int(num_freq)
 
-        if self.verbose:
-            print("Number of test periods:", num_freq)
-
         freqs = np.linspace(fmax, fmin, num_freq)
         pers = 1. / freqs
 
