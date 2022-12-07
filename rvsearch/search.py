@@ -531,12 +531,13 @@ class Search(object):
                 # Generalize tc reset to each new discovery.
                 tckey = f"tc{self.num_planets}"
                 tcvind = self.post.vector.indices[tckey]
-                keys = ['k', 'per', 'secosw', 'sesinw', 'tc']
+                keys_0 = ['k', 'per', 'secosw', 'sesinw']
+                keys_1 = ['k', 'per', 'secosw', 'sesinw', 'tc']
                 # if self.post.params[tckey].value < np.amin(self.data.time)
                 if self.post.vector.vector[tcvind, 0] < np.amin(self.data.time):
                     self.post.vector.vector[tcvind, 0] = np.median(self.data.time)
                     for n in np.arange(1, self.num_planets + 1):
-                        for key in keys:
+                        for key in keys_0:
                             vind = self.post.vector.indices[f'{key}{n}']
                             self.post.vector.vector[vind, 1] = False
                         if n != self.num_planets:
@@ -548,7 +549,7 @@ class Search(object):
                     self.post = radvel.fitting.maxlike_fitting(self.post, verbose=False)
 
                     for n in np.arange(1, self.num_planets + 1):
-                        for key in keys:
+                        for key in keys_1:
                             vind = self.post.vector.indices[f'{key}{n}']
                             self.post.vector.vector[vind, 1] = True
                         # self.post.params["k{}".format(n)].vary = True
