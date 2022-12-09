@@ -409,7 +409,7 @@ def _obj(per, post, baseline_bic, default_pdict, nplan, floor, times):
         for k in default_pdict.keys():
             newpost.params[k].value = default_pdict[k]
         utils.set_post_param(newpost, perkey, per)
-        utils.set_post_param(newpost, f"k{nplan}", 0)
+        utils.set_post_param(newpost, f"k{newpost.params.num_planets}", 0)
         newpost.list_vary_params()
         newpost = radvel.fitting.maxlike_fitting(newpost, verbose=False)
         bic = baseline_bic - newpost.likelihood.bic()
