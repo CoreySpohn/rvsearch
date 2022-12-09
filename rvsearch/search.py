@@ -4,6 +4,7 @@ import os
 import copy
 import pdb
 import pickle
+from pathlib import Path
 
 import numpy as np
 import matplotlib.pyplot as pl
@@ -16,6 +17,8 @@ from radvel.plot import orbit_plots
 
 import rvsearch.periodogram as periodogram
 import rvsearch.utils as utils
+import h5py
+import emcee
 
 
 class Search(object):
@@ -479,7 +482,7 @@ class Search(object):
         if outdir is None:
             outdir = os.path.join(os.getcwd(), self.starname)
         if mkoutdir and not os.path.exists(outdir):
-            os.mkdir(outdir)
+            Path(outdir).mkdir(parents=True, exist_ok=True)
 
         if self.trend:
             self.trend_test()
@@ -643,11 +646,11 @@ class Search(object):
             #         # Load the chains that were created and didn't converge
             #         chains = h5py.file(savename, 'r')
             # else:
-            # savename = outdir + "/chains.h5"
+            savename = outdir + "/chains.h5"
             chains = radvel.mcmc(
                 logpost,
                 nwalkers=50,
-                nrun=2000,
+                nrun=2500,
                 burnGR=1.03,
                 maxGR=1.0075,
                 minTz=2000,
@@ -662,6 +665,11 @@ class Search(object):
                 ensembles=nensembles,
                 headless=True
             )
+
+            # Get convergence information from chains then drop
+            # TODO Make this less terrible
+            self.mcmc_converged = chains['converged'][0]
+            chains.drop('converged', axis=1, inplace=True)
 
             # Convert chains to per, e, w basis.
             synthchains = logpost.params.basis.to_synth(chains)
