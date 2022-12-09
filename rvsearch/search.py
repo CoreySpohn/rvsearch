@@ -516,10 +516,10 @@ class Search(object):
             self.bic_threshes[self.num_planets] = perioder.bic_thresh
             self.best_bics[self.num_planets] = perioder.best_bic
 
-            if self.save_outputs:
-                perioder.plot_per()
-                perioder.fig.savefig(outdir+'/dbic{}.pdf'.format(
-                                     self.num_planets+1))
+            # if self.save_outputs:
+            #     perioder.plot_per()
+            #     perioder.fig.savefig(outdir+'/dbic{}.pdf'.format(
+            #                          self.num_planets+1))
 
             # Check whether there is a detection. If so, fit free and proceed.
             if perioder.best_bic > perioder.bic_thresh:
@@ -581,13 +581,13 @@ class Search(object):
                         # self.post.params[key].value = -self.post.params[key].value
 
             # Generate an orbit plot.
-            if self.save_outputs:
-                rvplot = orbit_plots.MultipanelPlot(self.post, saveplot=outdir +
-                                                    '/orbit_plot{}.pdf'.format(
-                                                    self.num_planets))
-                multiplot_fig, ax_list = rvplot.plot_multipanel()
-                multiplot_fig.savefig(outdir+'/orbit_plot{}.pdf'.format(
-                                                        self.num_planets))
+            # if self.save_outputs:
+            #     rvplot = orbit_plots.MultipanelPlot(self.post, saveplot=outdir +
+            #                                         '/orbit_plot{}.pdf'.format(
+            #                                         self.num_planets))
+            #     multiplot_fig, ax_list = rvplot.plot_multipanel()
+            #     multiplot_fig.savefig(outdir+'/orbit_plot{}.pdf'.format(
+            #                                             self.num_planets))
 
         # Generate running periodograms.
         if running:
