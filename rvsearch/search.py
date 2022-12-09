@@ -769,6 +769,8 @@ class Search(object):
                 multiplot_fig, ax_list = rvplot.plot_multipanel()
                 multiplot_fig.savefig(outdir+'/orbit_plot_mc_{}.pdf'.format(
                                       self.starname))
+        else:
+            self.mcmc_converged = False
 
         if self.save_outputs:
             self.save(filename=outdir+'/post_final.pkl')
