@@ -646,25 +646,31 @@ class Search(object):
             #         # Load the chains that were created and didn't converge
             #         chains = h5py.file(savename, 'r')
             # else:
-            savename = outdir + "/chains.h5"
-            chains = radvel.mcmc(
-                logpost,
-                nwalkers=50,
-                nrun=2500,
-                burnGR=1.03,
-                maxGR=1.0075,
-                minTz=2000,
-                minAfactor=15,
-                maxArchange=0.07,
-                burnAfactor=15,
-                minsteps=1000,
-                minpercent=50,
-                # thin=5,
-                # save=True,
-                # savename=savename,
-                ensembles=nensembles,
-                headless=True
-            )
+            # savename = outdir + "/chains.h5"
+            # This is here because some intial conditions result in the fit failing
+            try:
+                chains = radvel.mcmc(
+                    logpost,
+                    nwalkers=50,
+                    nrun=2500,
+                    burnGR=1.03,
+                    maxGR=1.0075,
+                    minTz=2000,
+                    minAfactor=15,
+                    maxArchange=0.07,
+                    burnAfactor=15,
+                    minsteps=1000,
+                    minpercent=50,
+                    # thin=5,
+                    # save=True,
+                    # savename=savename,
+                    ensembles=nensembles,
+                    headless=True
+                )
+                self.mcmc_failure = False
+            except ValueError:
+                self.mcmc_failure = True
+                return None
 
             # Get convergence information from chains then drop
             # TODO Make this less terrible
