@@ -670,6 +670,10 @@ class Search(object):
                 self.mcmc_failure = False
             except ValueError:
                 self.mcmc_failure = True
+                self.save(filename=outdir+'/post_final.pkl')
+                pickle_out = open(outdir+'/search.pkl','wb')
+                pickle.dump(self, pickle_out)
+                pickle_out.close()
                 return None
 
             # Get convergence information from chains then drop
