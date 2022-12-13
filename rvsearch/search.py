@@ -481,8 +481,6 @@ class Search(object):
         """
         if outdir is None:
             outdir = os.path.join(os.getcwd(), self.starname)
-        if mkoutdir and not os.path.exists(outdir):
-            Path(outdir).mkdir(parents=True, exist_ok=True)
 
         if self.trend:
             self.trend_test()
@@ -600,7 +598,7 @@ class Search(object):
             self.post.medparams = {}
             self.post.maxparams = {}
             # Use recommended parameters for mcmc.
-            nensembles = np.min([self.workers, 16])
+            nensembles = self.workers
             if os.cpu_count() < nensembles:
                 nensembles = os.cpu_count()
             # Set custom mcmc scales for e/w parameters.
@@ -667,9 +665,14 @@ class Search(object):
                     ensembles=nensembles,
                     headless=True
                 )
+                if mkoutdir and not os.path.exists(outdir):
+                    Path(outdir).mkdir(parents=True, exist_ok=True)
                 self.mcmc_failure = False
             except ValueError:
+                if mkoutdir and not os.path.exists(outdir):
+                    Path(outdir).mkdir(parents=True, exist_ok=True)
                 self.mcmc_failure = True
+                self.mcmc_converged = False
                 self.save(filename=outdir+'/post_final.pkl')
                 pickle_out = open(outdir+'/search.pkl','wb')
                 pickle.dump(self, pickle_out)
