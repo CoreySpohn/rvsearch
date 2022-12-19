@@ -598,7 +598,7 @@ class Search(object):
             self.post.medparams = {}
             self.post.maxparams = {}
             # Use recommended parameters for mcmc.
-            nensembles = np.min([self.workers, 16])
+            nensembles = np.min([self.workers, 10])
             if os.cpu_count() < nensembles:
                 nensembles = os.cpu_count()
             # Set custom mcmc scales for e/w parameters.
@@ -649,8 +649,8 @@ class Search(object):
             try:
                 chains = radvel.mcmc(
                     logpost,
-                    nwalkers=50,
-                    nrun=2500,
+                    nwalkers=40,
+                    nrun=2000,
                     burnGR=1.03,
                     maxGR=1.0075,
                     minTz=2000,
@@ -669,6 +669,7 @@ class Search(object):
                     Path(outdir).mkdir(parents=True, exist_ok=True)
                 self.mcmc_failure = False
             except ValueError:
+                print('MCMC failed')
                 if mkoutdir and not os.path.exists(outdir):
                     Path(outdir).mkdir(parents=True, exist_ok=True)
                 self.mcmc_failure = True
@@ -784,6 +785,7 @@ class Search(object):
                                       self.starname))
         else:
             self.mcmc_converged = False
+            self.mcmc_failure = False
 
         if self.save_outputs:
             self.save(filename=outdir+'/post_final.pkl')
