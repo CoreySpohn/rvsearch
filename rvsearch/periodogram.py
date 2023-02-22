@@ -1,21 +1,15 @@
 import copy
-import pdb
 
 import numpy as np
 import matplotlib.pyplot as plt
 import astropy.stats
-import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
-import numpy as np
 
 import radvel
 import radvel.fitting
-from radvel.plot import orbit_plots
 from tqdm import tqdm
 import pathos.multiprocessing as mp
 from multiprocessing import Value
-from itertools import repeat
-from functools import partial
 
 import rvsearch.utils as utils
 from scipy._lib._util import MapWrapper

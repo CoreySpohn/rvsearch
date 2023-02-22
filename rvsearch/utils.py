@@ -116,7 +116,7 @@ def initialize_post(data, params=None, priors=[], linear=True, decorrs=None):
 
     # initialize RVModel
     time_base = np.mean([data['time'].max(), data['time'].min()])
-    mod = radvel.RVModel(params, time_base=time_base)
+    mod = radvel.RVModel_c(params, time_base=time_base)
 
     # initialize Likelihood objects for each instrument
     telgrps = data.groupby('tel').groups
