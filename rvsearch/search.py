@@ -650,20 +650,20 @@ class Search(object):
                 chains = radvel.mcmc(
                     logpost,
                     nwalkers=50,
-                    nrun=15000,
+                    nrun=8000,
                     burnGR=1.03,
                     maxGR=1.0075,
                     minTz=2000,
                     minAfactor=15,
                     maxArchange=0.07,
                     burnAfactor=15,
-                    minsteps=10000,
+                    minsteps=2000,
                     minpercent=50,
                     thin=5,
                     # save=True,
                     # savename=savename,
                     ensembles=nensembles,
-                    headless=True,
+                    headless=False,
                 )
                 if mkoutdir and not os.path.exists(outdir):
                     Path(outdir).mkdir(parents=True, exist_ok=True)
