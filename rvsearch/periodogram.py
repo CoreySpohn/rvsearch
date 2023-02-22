@@ -1,6 +1,7 @@
 import copy
 
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 import astropy.stats
 import matplotlib.ticker as ticker
@@ -238,12 +239,54 @@ class Periodogram(object):
 
         # Set up the arguments used for the parallelization
         postcopy = copy.deepcopy(self.post)
+        # Breakout just the planet we're testing for by detrending the data
+        if (self.post.params.num_planets == 1 and self.post.params["k1"].value == 0.0):
+            tmppost = postcopy
+        else:
+            obs_times = []
+            obs_err = []
+            obs_rv = []
+            model_rv = []
+            insts = []
+            residuals = []
+            for instlike in postcopy.likelihood.like_list:
+                obs_times.append(instlike.x)
+                obs_rv.append(instlike.y)
+                obs_err.append(instlike.yerr)
+                model_rv.append(instlike.model(instlike.x))
+                insts.append(np.repeat(instlike.suffix, len(instlike.x)))
+                residuals.append(instlike.residuals())
+            tmpdata = pd.DataFrame({"time": pd.Series(np.concatenate(obs_times), dtype=float),
+                                    "mnvel": pd.Series(np.concatenate(residuals), dtype=float),
+                                    "modelvel": pd.Series(np.concatenate(model_rv), dtype=float),
+                                    "errvel": pd.Series(np.concatenate(obs_err), dtype=float),
+                                    "tel": pd.Series(np.concatenate(insts), dtype=str),
+                                    "obsvel": pd.Series(np.concatenate(obs_rv), dtype=float)})
+            jity = np.std(tmpdata.obsvel)
+            # tmpparams = utils.initialize_default_pars(instnames=np.unique(tmpdata.tel.values),
+            #                                           times=tmpdata.time.values,
+            #                                           linear=True,
+            #                                           jitty=2)
+            tmppost = utils.initialize_post(tmpdata, jitty=jity)
+            tmppost = utils.trend_test(tmppost)
         default_pdict = self.default_pdict
         nplan = self.num_known_planets
         floor = self.floor
         times = self.times
-        args = (postcopy, baseline_bic, default_pdict, nplan, floor, times)
+        tmp_pdict = {}
+        for k in tmppost.params.keys():
+            tmp_pdict[k] = tmppost.params[k].value
+        tmppostcopy = copy.deepcopy(tmppost)
+        args = (tmppostcopy, baseline_bic, tmp_pdict, 0, floor, times)
+        # args = (tmppostcopy, baseline_bic, tmp_pdict, 0, floor, times)
 
+        # For code profiling
+        # if nplan > 0:
+        #     output = []
+        #     for per in self.pers[:10]:
+        #         output.append(_obj(per, tmppostcopy, tmppost.likelihood.bic(), tmp_pdict, 0, floor, times))
+
+        output = []
         func = _obj_wrapper(_obj, args)
         with MapWrapper(pool=self.workers) as mapper:
             output = mapper(func, self.pers)
@@ -261,6 +304,16 @@ class Periodogram(object):
         self.bestfit_params = self.fit_params[fit_index]
         self.best_bic = self.bic[fit_index]
         self.power['bic'] = self.bic
+        keys = ['per', 'tc', 'k', 'secosw', 'sesinw']
+        original_params = {param_name:param.value for param_name, param in postcopy.params.items() if param_name not in [f"{key}{plstr}" for key in keys]}
+        for key in keys:
+            original_params[f"{key}{plstr}"] = self.bestfit_params[f"{key}1"]
+        self.bestfit_params = original_params
+        # for nplan in range(1, num_known_planets):
+        #     for key in keys:
+        #         vind = self.post.vector.indices[f'{key}{plstr}']
+        #         self.post.vector.vector[vind, 1] = False
+                
 
         if self.verbose:
             pbar.close()

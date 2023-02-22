@@ -1,5 +1,6 @@
 """Utilities for loading data, checking for known planets, etc."""
 
+import copy
 import numpy as np
 import scipy.special as spec
 from astropy import constants as c
@@ -93,7 +94,7 @@ def initialize_default_pars(instnames=['inst'], times=None, linear=True,
     return params
 
 
-def initialize_post(data, params=None, priors=[], linear=True, decorrs=None):
+def initialize_post(data, params=None, priors=[], linear=True, decorrs=None, jitty=2):
     """Initialize a posterior object with data, params, and priors.
     Args:
         data: a pandas dataframe.
@@ -107,7 +108,7 @@ def initialize_post(data, params=None, priors=[], linear=True, decorrs=None):
 
     if params is None:
         # params = radvel.Parameters(1, basis='per tc secosw sesinw logk')
-        params = initialize_default_pars(instnames=data.tel, times=data.time)
+        params = initialize_default_pars(instnames=data.tel, times=data.time, jitty=jitty)
     iparams = radvel.basis._copy_params(params)
 
     # Allow for time to be listed as 'time' or 'jd' (Julian Date).
@@ -389,3 +390,64 @@ values. Interpret posterior with caution.".format(num_nan, nan_perc))
 def set_post_param(post, param_name, val):
     vector_ind = post.vector.indices[param_name]
     post.vector.vector[vector_ind, 0] = val
+
+
+def trend_test(post):
+    """Perform zero-planet baseline fit, test for significant trend.
+
+    """
+    post1 = copy.deepcopy(post)
+    # Fix all Keplerian parameters. K is zero, equivalent to no planet.
+    post1.params['k1'].vary      = False
+    post1.params['tc1'].vary     = False
+    post1.params['per1'].vary    = False
+    post1.params['secosw1'].vary = False
+    post1.params['sesinw1'].vary = False
+    post1.params['dvdt'].vary    = True
+    post1.params['curv'].vary    = True
+    post1 = radvel.fitting.maxlike_fitting(post1, verbose=False)
+
+    trend_curve_bic = post1.likelihood.bic()
+
+    # Test without curvature
+    post2 = copy.deepcopy(post1)
+    post2.params['curv'].value = 0.0
+    post2.params['curv'].vary  = False
+    post2 = radvel.fitting.maxlike_fitting(post2, verbose=False)
+
+    trend_bic = post2.likelihood.bic()
+
+    # Test without trend or curvature
+    post3 = copy.deepcopy(post2)
+    post3.params['dvdt'].value = 0.0
+    post3.params['dvdt'].vary  = False
+    post3.params['curv'].value = 0.0
+    post3.params['curv'].vary  = False
+
+    flat_bic = post3.likelihood.bic()
+
+    keys = ['dvdt', 'curv']
+    if (trend_bic < flat_bic - 5) or (trend_curve_bic < flat_bic - 5):
+        if trend_curve_bic < trend_bic - 5:
+            # Quadratic
+            for key in keys:
+                vind = post.vector.indices[key]
+                post.vector.vector[vind, 0] = post1.vector.vector[key, 0]
+                post.vector.vector[vind, 1] = post1.vector.vector[key, 1]
+        else:
+            # Linear
+            vind_dvdt = post.vector.indices['dvdt']
+            post.vector.vector[vind_dvdt, 0] = post2.params["dvdt"].value
+            post.vector.vector[vind_dvdt, 1] = True
+            vind_curv = post.vector.indices['curv']
+            post.vector.vector[vind_curv, 0] = 0
+            post.vector.vector[vind_curv, 1] = False
+    else:
+        # Flat
+        for key in keys:
+            vind = post.vector.indices[key]
+            post.vector.vector[vind, 0] = 0
+            post.vector.vector[vind, 1] = False
+    post.vector.vector_to_dict()
+    post.list_vary_params()
+    return post
