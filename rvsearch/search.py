@@ -663,7 +663,7 @@ class Search(object):
                     # save=True,
                     # savename=savename,
                     ensembles=nensembles,
-                    headless=False,
+                    headless=True,
                 )
                 if mkoutdir and not os.path.exists(outdir):
                     Path(outdir).mkdir(parents=True, exist_ok=True)
