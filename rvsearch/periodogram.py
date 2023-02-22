@@ -239,7 +239,8 @@ class Periodogram(object):
 
         # Set up the arguments used for the parallelization
         postcopy = copy.deepcopy(self.post)
-        # Breakout just the planet we're testing for by detrending the data
+        # Breakout just the planet we're testing for by using the residuals for
+        # a new posterior object
         if (self.post.params.num_planets == 1 and self.post.params["k1"].value == 0.0):
             tmppost = postcopy
         else:
