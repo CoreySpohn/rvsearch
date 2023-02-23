@@ -650,7 +650,7 @@ class Search(object):
                 chains = radvel.mcmc(
                     logpost,
                     nwalkers=50,
-                    nrun=8000,
+                    nrun=4000,
                     burnGR=1.03,
                     maxGR=1.0075,
                     minTz=2000,
