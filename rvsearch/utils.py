@@ -153,6 +153,65 @@ def initialize_post(data, params=None, priors=[], linear=True, decorrs=None, jit
     return post
 
 
+# def initialize_post_c(data, params=None, priors=[], linear=True, decorrs=None):
+#     """Initialize a posterior object with data, params, and priors.
+#     Args:
+#         data: a pandas dataframe.
+#         params: a list of radvel parameter objects.
+#         priors: a list of priors to place on the posterior object.
+#         decorrs: a list of decorrelation vectors.
+#     Returns:
+#         post (radvel Posterior object)
+
+#     """
+
+#     if params is None:
+#         # params = radvel.Parameters(1, basis='per tc secosw sesinw logk')
+#         params = initialize_default_pars(instnames=data.tel, times=data.time)
+#     iparams = radvel.basis._copy_params(params)
+
+#     # Allow for time to be listed as 'time' or 'jd' (Julian Date).
+#     if {'jd'}.issubset(data.columns):
+#         data['time'] = data['jd']
+
+#     # initialize RVModel
+#     time_base = np.mean([data['time'].max(), data['time'].min()])
+#     mod = radvel.RVModel_c(params, time_base=time_base)
+
+#     # initialize Likelihood objects for each instrument
+#     telgrps = data.groupby('tel').groups
+#     likes = {}
+
+#     for inst in telgrps.keys():
+#         # 10/8: ADD DECORRELATION VECTORS AND VARS, ONLY FOR SELECTED INST.
+#         likes[inst] = radvel.likelihood.RVLikelihood_c(
+#             mod, data.iloc[telgrps[inst]].time, data.iloc[telgrps[inst]].mnvel,
+#             data.iloc[telgrps[inst]].errvel, suffix='_'+inst)
+
+#         likes[inst].params['gamma_'+inst] = iparams['gamma_'+inst]
+#         likes[inst].params['jit_'+inst] = iparams['jit_'+inst]
+#     # Can this be cleaner? like = radvel.likelihood.CompositeLikelihood(likes)
+#     like = radvel.likelihood.CompositeLikelihood(list(likes.values()))
+
+#     post = radvel.posterior.Posterior(like)
+#     if priors == []:
+#         priors.append(radvel.prior.PositiveKPrior(post.params.num_planets))
+#         priors.append(radvel.prior.EccentricityPrior(post.params.num_planets))
+
+#         if not linear:
+#             if ('j' in telgrps.keys()) and ('k' in telgrps.keys()):
+#                 TexStr = 'Gaussian Prior on HIRES offset'
+#                 OffsetPrior = radvel.prior.UserDefinedPrior(['gamma_j', 'gamma_k'],
+#                                                             GaussianDiffFunc,
+#                                                             TexStr)
+#                 priors.append(OffsetPrior)
+#         #for inst in telgrps.keys():
+#         #    priors.append(radvel.prior.Jeffrey('jit_'+inst, 0.01, 20.0))
+#     post.priors = priors
+
+#     return post
+
+
 def window(times, freqs, plot=False):
     """Function to generate, and plot, the window function of observations.
 

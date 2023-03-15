@@ -46,7 +46,8 @@ class Search(object):
                 priors=[], crit='bic', fap=0.001, min_per=3, max_per=10000,
                 jity=2., manual_grid=None, oversampling=1., trend=False, linear=True,
                 eccentric=False, fix=False, polish=True, baseline=True,
-                mcmc=True, workers=1, verbose=True, save_outputs=True, mstar=None):
+                mcmc=True, workers=1, verbose=True, save_outputs=True, mstar=None,
+                n_vary=None):
 
         if {'time', 'mnvel', 'errvel', 'tel'}.issubset(data.columns):
             self.data = data
@@ -86,6 +87,9 @@ class Search(object):
             self.post   = utils.initialize_post(data, params=self.params,
                                                 priors=self.priors,
                                                 linear=self.linear)
+            # self.post_c   = utils.initialize_post_c(data, params=self.params,
+            #                                     priors=self.priors,
+            #                                     linear=self.linear)
             self.setup  = False
             self.setup_planets = -1
         else:
@@ -127,6 +131,8 @@ class Search(object):
         self.bic_threshes = dict()
         self.best_bics = dict()
         self.eFAPs = dict()
+
+        self.n_vary = n_vary
 
     def trend_test(self):
         """Perform zero-planet baseline fit, test for significant trend.
@@ -406,6 +412,8 @@ class Search(object):
         """Pickle current posterior.
 
         """
+        if not Path(filename).parent.exists():
+            Path(filename).parent.mkdir(exist_ok=True, parents=True)
         self.post.writeto(filename)
 
     def running_per(self):
@@ -499,7 +507,8 @@ class Search(object):
                                                baseline=self.baseline,
                                                eccentric=self.eccentric,
                                                workers=self.workers,
-                                               verbose=self.verbose)
+                                               verbose=self.verbose,
+                                               n_vary=self.n_vary)
             # Run the periodogram, store arrays and threshold (if computed).
             perioder.per_bic()
             self.periodograms[self.num_planets] = perioder.power[self.crit]
@@ -546,7 +555,6 @@ class Search(object):
                     self.post.vector.vector_to_dict()
                     self.post.list_vary_params()
                     self.post = radvel.fitting.maxlike_fitting(self.post, verbose=False)
-
                     for n in np.arange(1, self.num_planets + 1):
                         for key in keys_1:
                             vind = self.post.vector.indices[f'{key}{n}']
@@ -606,8 +614,6 @@ class Search(object):
                 for key in ['secosw', 'sesinw']:
                     vind = self.post.vector.indices[f"{key}{n}"]
                     self.post.vector.vector[vind, 2] = 0.005
-                # self.post.params["secosw{}".format(n)].mcmcscale = 0.005
-                # self.post.params["sesinw{}".format(n)].mcmcscale = 0.005
 
             self.post.vector.vector_to_dict()
             self.post.list_vary_params()
@@ -650,14 +656,14 @@ class Search(object):
                 chains = radvel.mcmc(
                     logpost,
                     nwalkers=50,
-                    nrun=4000,
+                    nrun=8000,
                     burnGR=1.03,
                     maxGR=1.0075,
                     minTz=2000,
                     minAfactor=15,
                     maxArchange=0.07,
                     burnAfactor=15,
-                    minsteps=2000,
+                    minsteps=3000,
                     minpercent=50,
                     thin=5,
                     # save=True,

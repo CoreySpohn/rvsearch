@@ -54,7 +54,7 @@ class Periodogram(object):
     def __init__(self, post, basebic=None, minsearchp=3, maxsearchp=10000,
                  baseline=True, basefactor=5., oversampling=1., manual_grid=None,
                  fap=0.001, num_pers=None, eccentric=False, workers=1,
-                 verbose=True):
+                 verbose=True, n_vary=None):
         self.post = copy.deepcopy(post)
         self.default_pdict = {}
         for k in post.params.keys():
@@ -106,6 +106,8 @@ class Periodogram(object):
             self.floor = -4*np.log(len(self.times))
         else:
             self.floor = -2*np.log(len(self.times))
+
+        self.n_vary = n_vary
 
         # Automatically generate a period grid upon initialization.
         self.make_per_grid()
@@ -241,51 +243,142 @@ class Periodogram(object):
         postcopy = copy.deepcopy(self.post)
         # Breakout just the planet we're testing for by using the residuals for
         # a new posterior object
-        if (self.post.params.num_planets == 1 and self.post.params["k1"].value == 0.0):
-            tmppost = postcopy
+        # if (self.post.params.num_planets == 1 and self.post.params["k1"].value == 0.0):
+        #     tmppost = postcopy
+        # else:
+        n_plans = postcopy.params.num_planets
+        if n_plans <= self.n_vary+1:
+            testpost = postcopy
+            default_pdict = self.default_pdict
+            nplan = self.num_known_planets
+            floor = self.floor
+            times = self.times
+            testpostcopy = copy.deepcopy(testpost)
+            # Create the args tuple for the periodogram's objective function
+            args = (testpostcopy, baseline_bic, default_pdict, nplan, floor, times)
         else:
+            # The new planet we're testing periods for will be n_plan
+            # so only go to n_plan-1 in this
+            per_strs = [f"per{n}" for n in range(1, n_plans)]
+
+            # Periods of all fitted planets (days)
+            pers = [postcopy.params[s].value for s in per_strs]
+
+            # get indices of the planets we want to vary
+            # Currently looking at the largest periods
+            filter_inds = np.where(np.argsort(pers) >= (n_plans-self.n_vary-1))[0]
+            # Add 1 because the parameters start numbering at 1 instead of 0
+            filter_inds += 1
+
+            # Now we need to create likelihoods for all instruments that have the
+            # parameters of the planets we want to vary and the rv values equal to
+            # the residuals of all the planets we are not varying
+
+            # Going to have to loop through all planets, add to either the testing
+            # posterior or a posterior to calculate the residuals with
+            test_params = radvel.Parameters(num_planets=self.n_vary+1, basis = 'per tc secosw sesinw k')
+            res_params = radvel.Parameters(num_planets=n_plans-1 - self.n_vary, basis = 'per tc secosw sesinw k')
+            keys = ['per', 'tc', 'k', 'secosw', 'sesinw']
+            test_params_n = 1
+            res_params_n = 1
+            filter_map = {}
+            for pind in range(1, n_plans):
+                if pind in filter_inds:
+                    # Add to the test posterior
+                    for key in keys:
+                        test_params[f"{key}{test_params_n}"] = postcopy.params[f"{key}{pind}"]
+
+                    # This map is used later to combine parameters that we
+                    # solved for and the parameters that were not varied
+                    filter_map[pind] = test_params_n
+
+                    test_params_n += 1
+                else:
+                    # Add to the posterior to calculate residuals
+                    for key in keys:
+                        res_params[f"{key}{res_params_n}"] = postcopy.params[f"{key}{pind}"]
+                    res_params_n += 1
+            # Adding the jitter and dvdt/curv params
+            for param in postcopy.params:
+                is_orbit_param = np.any([True if key in param else False for key in keys])
+                if not is_orbit_param:
+                    test_params[param] = postcopy.params[param]
+                    res_params[param] = postcopy.params[param]
+
+            # Create the posterior with the residual parameters and the base
+            # data so that we can calculate the residuals and use those for
+            # data in the test posterior
             obs_times = []
             obs_err = []
-            obs_rv = []
-            model_rv = []
+            real_obs_rv = []
             insts = []
-            residuals = []
+            # Loop through the instruments to get the base values for everything
             for instlike in postcopy.likelihood.like_list:
+                # Instrument's observation times
                 obs_times.append(instlike.x)
-                obs_rv.append(instlike.y)
+                # Instrument's observed RV values
+                real_obs_rv.append(instlike.y)
+                # Instrument's one sigma RV error
                 obs_err.append(instlike.yerr)
-                model_rv.append(instlike.model(instlike.x))
                 insts.append(np.repeat(instlike.suffix, len(instlike.x)))
-                residuals.append(instlike.residuals())
-            tmpdata = pd.DataFrame({"time": pd.Series(np.concatenate(obs_times), dtype=float),
-                                    "mnvel": pd.Series(np.concatenate(residuals), dtype=float),
-                                    "modelvel": pd.Series(np.concatenate(model_rv), dtype=float),
+            basedata = pd.DataFrame({"time": pd.Series(np.concatenate(obs_times), dtype=float),
+                                    "mnvel": pd.Series(np.concatenate(real_obs_rv), dtype=float),
                                     "errvel": pd.Series(np.concatenate(obs_err), dtype=float),
-                                    "tel": pd.Series(np.concatenate(insts), dtype=str),
-                                    "obsvel": pd.Series(np.concatenate(obs_rv), dtype=float)})
-            jity = np.std(tmpdata.obsvel)
-            # tmpparams = utils.initialize_default_pars(instnames=np.unique(tmpdata.tel.values),
-            #                                           times=tmpdata.time.values,
-            #                                           linear=True,
-            #                                           jitty=2)
-            tmppost = utils.initialize_post(tmpdata, jitty=jity)
-            tmppost = utils.trend_test(tmppost)
-        default_pdict = self.default_pdict
-        nplan = self.num_known_planets
-        floor = self.floor
-        times = self.times
-        tmp_pdict = {}
-        for k in tmppost.params.keys():
-            tmp_pdict[k] = tmppost.params[k].value
-        tmppostcopy = copy.deepcopy(tmppost)
-        args = (tmppostcopy, baseline_bic, tmp_pdict, 0, floor, times)
-        # args = (tmppostcopy, baseline_bic, tmp_pdict, 0, floor, times)
+                                    "tel": pd.Series(np.concatenate(insts), dtype=str)})
+            # Jitter estimate
+            jity = np.std(basedata.mnvel)
+
+            # Create posterior to calculate the residuals
+            respost = utils.initialize_post(basedata, params=res_params, jitty=jity)
+
+            # Get the residual values
+            res_obs_rv = []
+            for instlike in respost.likelihood.like_list:
+                res_obs_rv.append(instlike.residuals())
+
+            # Dataframe with the residual data as the velocities
+            testdata = pd.DataFrame({"time": pd.Series(np.concatenate(obs_times), dtype=float),
+                                    "mnvel": pd.Series(np.concatenate(res_obs_rv), dtype=float),
+                                    "errvel": pd.Series(np.concatenate(obs_err), dtype=float),
+                                    "tel": pd.Series(np.concatenate(insts), dtype=str)})
+
+            # Add the test planet params to the test params
+            test_params[f'per{self.n_vary+1}'] = radvel.Parameter(value=100, vary=False)
+            test_params[f'tc{self.n_vary+1}'] = radvel.Parameter(value=np.median(basedata.time), vary=True)
+            test_params[f'k{self.n_vary+1}'] = radvel.Parameter(value=0, vary=True)
+            test_params[f'secosw{self.n_vary+1}'] = radvel.Parameter(value=0, vary=False)
+            test_params[f'sesinw{self.n_vary+1}'] = radvel.Parameter(value=0, vary=False)
+
+            # Create priors
+            testpriors = []
+            testpriors.append(radvel.prior.PositiveKPrior(self.n_vary+1))
+            testpriors.append(radvel.prior.EccentricityPrior(self.n_vary+1))
+
+            # Create posterior to use in the periodogram
+            testpost = utils.initialize_post(testdata, params=test_params, priors=testpriors, jitty=jity)
+            testpost = utils.trend_test(testpost)
+
+            # Create the args tuple for the periodogram's objective function
+            nplan = self.num_known_planets
+            floor = self.floor
+            times = self.times
+            tmp_pdict = {}
+            # Create dictionary with just the parameter values
+            for k in testpost.params.keys():
+                tmp_pdict[k] = testpost.params[k].value
+            testpostcopy = copy.deepcopy(testpost)
+            baseline_bic = testpost.likelihood.bic()
+            args = (testpostcopy, baseline_bic, tmp_pdict, self.n_vary, floor, times)
+            output = []
+            # for per in self.pers[:10]:
+            #     output.append(_obj(per, testpostcopy, baseline_bic, tmp_pdict, self.n_vary, floor, times))
 
         # For code profiling
         # if nplan > 0:
         #     output = []
-        #     for per in self.pers[:10]:
-        #         output.append(_obj(per, tmppostcopy, tmppost.likelihood.bic(), tmp_pdict, 0, floor, times))
+        output = []
+        for per in self.pers[:10]:
+            output.append(_obj(per, testpostcopy, testpost.likelihood.bic(), tmp_pdict, nplan, floor, times))
 
         output = []
         func = _obj_wrapper(_obj, args)
@@ -305,11 +398,23 @@ class Periodogram(object):
         self.bestfit_params = self.fit_params[fit_index]
         self.best_bic = self.bic[fit_index]
         self.power['bic'] = self.bic
-        keys = ['per', 'tc', 'k', 'secosw', 'sesinw']
-        original_params = {param_name:param.value for param_name, param in postcopy.params.items() if param_name not in [f"{key}{plstr}" for key in keys]}
-        for key in keys:
-            original_params[f"{key}{plstr}"] = self.bestfit_params[f"{key}1"]
-        self.bestfit_params = original_params
+        if np.isnan(self.best_bic):
+            breakpoint()
+        if n_plans > self.n_vary+1:
+            original_params = {param_name:param.value for param_name, param in postcopy.params.items() if param_name not in [f"{key}{plstr}" for key in keys]}
+            # Replace the planets that were allowed to vary with the updated parameters
+            for pind, test_param_n in filter_map.items():
+                for key in keys:
+                    original_params[f"{key}{pind}"] = self.bestfit_params[f"{key}{test_param_n}"]
+
+            # Add the parameters of the new planet
+            for key in keys:
+                # New planet is always the last key
+                original_params[f"{key}{n_plans}"] = self.bestfit_params[f"{key}{self.n_vary+1}"]
+            self.bestfit_params = original_params
+            if len([key for key, value in self.bestfit_params.items() if (('k' in key) and (value < 0))]) > 0:
+                breakpoint()
+        # keys = ['per', 'tc', 'k', 'secosw', 'sesinw']
         # for nplan in range(1, num_known_planets):
         #     for key in keys:
         #         vind = self.post.vector.indices[f'{key}{plstr}']
