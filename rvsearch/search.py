@@ -652,6 +652,7 @@ class Search(object):
             # else:
             # savename = outdir + "/chains.h5"
             # This is here because some intial conditions result in the fit failing
+            print("Running MCMC")
             try:
                 chains = radvel.mcmc(
                     logpost,

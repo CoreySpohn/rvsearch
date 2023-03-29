@@ -376,9 +376,9 @@ class Periodogram(object):
         # For code profiling
         # if nplan > 0:
         #     output = []
-        output = []
-        for per in self.pers[:10]:
-            output.append(_obj(per, testpostcopy, testpost.likelihood.bic(), tmp_pdict, nplan, floor, times))
+        # output = []
+        # for per in self.pers[:10]:
+        #     output.append(_obj(per, testpostcopy, testpost.likelihood.bic(), tmp_pdict, nplan, floor, times))
 
         output = []
         func = _obj_wrapper(_obj, args)
@@ -394,7 +394,7 @@ class Periodogram(object):
         self.bic = all_bics
         self.fit_params = all_params
 
-        fit_index = np.argmax(self.bic)
+        fit_index = np.argmax(np.nan_to_num(self.bic, nan=-np.inf))
         self.bestfit_params = self.fit_params[fit_index]
         self.best_bic = self.bic[fit_index]
         self.power['bic'] = self.bic
