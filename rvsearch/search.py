@@ -667,6 +667,7 @@ class Search(object):
                     minsteps=3000,
                     minpercent=50,
                     thin=5,
+                    checkinterval=200,
                     # save=True,
                     # savename=savename,
                     ensembles=nensembles,
