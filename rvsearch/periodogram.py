@@ -398,8 +398,6 @@ class Periodogram(object):
         self.bestfit_params = self.fit_params[fit_index]
         self.best_bic = self.bic[fit_index]
         self.power['bic'] = self.bic
-        if np.isnan(self.best_bic):
-            breakpoint()
         if n_plans > self.n_vary+1:
             original_params = {param_name:param.value for param_name, param in postcopy.params.items() if param_name not in [f"{key}{plstr}" for key in keys]}
             # Replace the planets that were allowed to vary with the updated parameters
