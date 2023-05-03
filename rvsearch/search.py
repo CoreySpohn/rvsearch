@@ -692,6 +692,12 @@ class Search(object):
             self.mcmc_converged = chains['converged'][0]
             chains.drop('converged', axis=1, inplace=True)
 
+            # save best mcmc probability
+            self.mcmc_best_prob = chains.loc[
+                chains.lnprobability.idxmax(),
+                "lnprobability",
+            ]
+
             # Convert chains to per, e, w basis.
             synthchains = logpost.params.basis.to_synth(chains)
             synthquants = synthchains.quantile([0.159, 0.5, 0.841])
