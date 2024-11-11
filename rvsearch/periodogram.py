@@ -10,7 +10,8 @@ import radvel
 import radvel.fitting
 from tqdm import tqdm
 import pathos.multiprocessing as mp
-from multiprocessing import Value
+from multiprocessing import Value, Pool
+from functools import partial
 
 import rvsearch.utils as utils
 from scipy._lib._util import MapWrapper
@@ -18,6 +19,7 @@ from scipy._lib._util import MapWrapper
 
 class TqdmUpTo(tqdm):
     """Provides `update_to(n)` which uses `tqdm.update(delta_n)`."""
+
     def update_to(self, b=1, bsize=1, tsize=None):
         """
         b  : int, optional
@@ -51,10 +53,23 @@ class Periodogram(object):
 
     """
 
-    def __init__(self, post, basebic=None, minsearchp=3, maxsearchp=10000,
-                 baseline=True, basefactor=5., oversampling=1., manual_grid=None,
-                 fap=0.001, num_pers=None, eccentric=False, workers=1,
-                 verbose=True, n_vary=None):
+    def __init__(
+        self,
+        post,
+        basebic=None,
+        minsearchp=3,
+        maxsearchp=10000,
+        baseline=True,
+        basefactor=5.0,
+        oversampling=1.0,
+        manual_grid=None,
+        fap=0.001,
+        num_pers=None,
+        eccentric=False,
+        workers=1,
+        verbose=True,
+        n_vary=None,
+    ):
         self.post = copy.deepcopy(post)
         self.default_pdict = {}
         for k in post.params.keys():
@@ -69,11 +84,11 @@ class Periodogram(object):
         self.timelen = np.amax(self.times) - np.amin(self.times)
 
         self.tels = np.unique(self.post.likelihood.telvec)
-        '''
+        """
         for val in self.post.params.keys():
             if 'gamma_' in val:
                 self.tels.append(val.split('_')[1])
-        '''
+        """
 
         self.minsearchP = minsearchp
         self.maxsearchP = maxsearchp
@@ -91,7 +106,7 @@ class Periodogram(object):
         if self.baseline == True:
             self.maxsearchP = self.basefactor * self.timelen
 
-        self.valid_types = ['bic', 'aic', 'ls']
+        self.valid_types = ["bic", "aic", "ls"]
         self.power = {key: None for key in self.valid_types}
 
         self.workers = workers
@@ -103,9 +118,9 @@ class Periodogram(object):
         self.bic_thresh = None
         # Pre-compute good-fit floor of the BIC periodogram.
         if self.eccentric:
-            self.floor = -4*np.log(len(self.times))
+            self.floor = -4 * np.log(len(self.times))
         else:
-            self.floor = -2*np.log(len(self.times))
+            self.floor = -2 * np.log(len(self.times))
 
         self.n_vary = n_vary
 
@@ -122,45 +137,50 @@ class Periodogram(object):
             array: Array of test periods
 
         """
-        fmin = 1./self.maxsearchP
-        fmax = 1./self.minsearchP
+        fmin = 1.0 / self.maxsearchP
+        fmax = 1.0 / self.minsearchP
 
         # Should be 1/(2*pi*baseline), was previously 1/4.
-        dnu       = 1./(2*np.pi*self.timelen)
-        num_freq  = (fmax - fmin)/dnu + 1
+        dnu = 1.0 / (2 * np.pi * self.timelen)
+        num_freq = (fmax - fmin) / dnu + 1
         num_freq *= self.oversampling
-        num_freq  = int(num_freq)
+        num_freq = int(num_freq)
 
         freqs = np.linspace(fmax, fmin, num_freq)
-        pers = 1. / freqs
+        pers = 1.0 / freqs
 
         self.num_pers = num_freq
         return pers
 
     def make_per_grid(self):
-        """Generate a grid of periods for which to compute likelihoods.
-
-        """
+        """Generate a grid of periods for which to compute likelihoods."""
         if self.manual_grid is not None:
             self.pers = np.array(self.manual_grid)
         else:
             if self.num_pers is None:
                 self.pers = self.per_spacing()
             else:
-                self.pers = (1/np.linspace(1/self.maxsearchP, 1/self.minsearchP,self.num_pers))[::-1]
+                self.pers = (
+                    1
+                    / np.linspace(
+                        1 / self.maxsearchP, 1 / self.minsearchP, self.num_pers
+                    )
+                )[::-1]
 
-        self.freqs = 1/self.pers
+        self.freqs = 1 / self.pers
 
     def per_bic(self):
-        """Compute delta-BIC periodogram. ADD: crit is BIC or AIC.
-
-        """
-        prvstr = str(self.post.params.num_planets-1)
+        """Compute delta-BIC periodogram. ADD: crit is BIC or AIC."""
+        prvstr = str(self.post.params.num_planets - 1)
         plstr = str(self.post.params.num_planets)
         if self.verbose:
-            print("Calculating BIC periodogram for {} planets vs. {} planets".format(plstr, prvstr))
+            print(
+                "Calculating BIC periodogram for {} planets vs. {} planets".format(
+                    plstr, prvstr
+                )
+            )
         # This assumes nth planet parameters, and all periods, are fixed.
-        keys = ['per', 'tc', 'k', 'secosw', 'sesinw']
+        keys = ["per", "tc", "k", "secosw", "sesinw"]
         if self.basebic is None:
             # Handle the case where there are no known planets.
             if (
@@ -168,7 +188,7 @@ class Periodogram(object):
                 and self.post.params["k1"].value == 0.0
             ):
                 for key in keys:
-                    vind = self.post.vector.indices[f'{key}{plstr}']
+                    vind = self.post.vector.indices[f"{key}{plstr}"]
                     self.post.vector.vector[vind, 1] = False
                 # self.post.params["per" + plstr].vary = False
                 # self.post.params["tc" + plstr].vary = False
@@ -182,7 +202,7 @@ class Periodogram(object):
             # Handle the case where there is at least one known planet.
             else:
                 for key in keys:
-                    vind = self.post.vector.indices[f'{key}{self.num_known_planets+1}']
+                    vind = self.post.vector.indices[f"{key}{self.num_known_planets+1}"]
                     self.post.vector.vector[vind, 1] = False
                 # self.post.params[
                 #     "per{}".format(self.num_known_planets + 1)
@@ -201,43 +221,43 @@ class Periodogram(object):
             baseline_bic = self.basebic
 
         rms = np.std(self.post.likelihood.residuals())
-        self.default_pdict['k{}'.format(self.post.params.num_planets)] = rms
+        self.default_pdict["k{}".format(self.post.params.num_planets)] = rms
 
         # Allow amplitude and time offset to vary, fix period (and ecc. if asked.)
         nplan = self.num_known_planets
-        vind = self.post.vector.indices[f'per{nplan+1}']
+        vind = self.post.vector.indices[f"per{nplan+1}"]
         self.post.vector.vector[vind, 1] = False
         # self.post.params["per{}".format(self.num_known_planets + 1)].vary = False
-        keys = ['secosw', 'sesinw']
+        keys = ["secosw", "sesinw"]
         if self.eccentric == True:
             # If eccentric set to True, Free eccentricity.
             for key in keys:
-                vind = self.post.vector.indices[f'{key}{nplan+1}']
+                vind = self.post.vector.indices[f"{key}{nplan+1}"]
                 self.post.vector.vector[vind, 1] = True
             # self.post.params["secosw{}".format(self.num_known_planets + 1)].vary = True
             # self.post.params["sesinw{}".format(self.num_known_planets + 1)].vary = True
         else:
             # If eccentric set to False, fix eccentricity to zero.
             for key in keys:
-                vind = self.post.vector.indices[f'{key}{nplan+1}']
+                vind = self.post.vector.indices[f"{key}{nplan+1}"]
                 self.post.vector.vector[vind, 1] = False
             # self.post.params["secosw{}".format(self.num_known_planets + 1)].vary = False
             # self.post.params["sesinw{}".format(self.num_known_planets + 1)].vary = False
 
-        vind = self.post.vector.indices[f'k{nplan+1}']
+        vind = self.post.vector.indices[f"k{nplan+1}"]
         self.post.vector.vector[vind, 1] = True
-        vind = self.post.vector.indices[f'tc{nplan+1}']
+        vind = self.post.vector.indices[f"tc{nplan+1}"]
         self.post.vector.vector[vind, 1] = True
         self.post.list_vary_params()
         # self.post.params["k{}".format(self.num_known_planets + 1)].vary = True
         # self.post.params["tc{}".format(self.num_known_planets + 1)].vary = True
 
-        if self.verbose:
-            global pbar
-            global counter
-
-            counter = Value('i', 0, lock=True)
-            pbar = TqdmUpTo(total=len(self.pers), position=0)
+        # if self.verbose:
+        #     global pbar
+        #     global counter
+        #
+        #     counter = Value("i", 0, lock=True)
+        #     pbar = TqdmUpTo(total=len(self.pers), position=0)
 
         # Set up the arguments used for the parallelization
         postcopy = copy.deepcopy(self.post)
@@ -247,7 +267,7 @@ class Periodogram(object):
         #     tmppost = postcopy
         # else:
         n_plans = postcopy.params.num_planets
-        if n_plans <= self.n_vary+1:
+        if n_plans <= self.n_vary + 1:
             testpost = postcopy
             default_pdict = self.default_pdict
             nplan = self.num_known_planets
@@ -266,7 +286,7 @@ class Periodogram(object):
 
             # get indices of the planets we want to vary
             # Currently looking at the largest periods
-            filter_inds = np.where(np.argsort(pers) >= (n_plans-self.n_vary-1))[0]
+            filter_inds = np.where(np.argsort(pers) >= (n_plans - self.n_vary - 1))[0]
             # Add 1 because the parameters start numbering at 1 instead of 0
             filter_inds += 1
 
@@ -276,9 +296,13 @@ class Periodogram(object):
 
             # Going to have to loop through all planets, add to either the testing
             # posterior or a posterior to calculate the residuals with
-            test_params = radvel.Parameters(num_planets=self.n_vary+1, basis = 'per tc secosw sesinw k')
-            res_params = radvel.Parameters(num_planets=n_plans-1 - self.n_vary, basis = 'per tc secosw sesinw k')
-            keys = ['per', 'tc', 'k', 'secosw', 'sesinw']
+            test_params = radvel.Parameters(
+                num_planets=self.n_vary + 1, basis="per tc secosw sesinw k"
+            )
+            res_params = radvel.Parameters(
+                num_planets=n_plans - 1 - self.n_vary, basis="per tc secosw sesinw k"
+            )
+            keys = ["per", "tc", "k", "secosw", "sesinw"]
             test_params_n = 1
             res_params_n = 1
             filter_map = {}
@@ -286,7 +310,9 @@ class Periodogram(object):
                 if pind in filter_inds:
                     # Add to the test posterior
                     for key in keys:
-                        test_params[f"{key}{test_params_n}"] = postcopy.params[f"{key}{pind}"]
+                        test_params[f"{key}{test_params_n}"] = postcopy.params[
+                            f"{key}{pind}"
+                        ]
 
                     # This map is used later to combine parameters that we
                     # solved for and the parameters that were not varied
@@ -296,11 +322,15 @@ class Periodogram(object):
                 else:
                     # Add to the posterior to calculate residuals
                     for key in keys:
-                        res_params[f"{key}{res_params_n}"] = postcopy.params[f"{key}{pind}"]
+                        res_params[f"{key}{res_params_n}"] = postcopy.params[
+                            f"{key}{pind}"
+                        ]
                     res_params_n += 1
             # Adding the jitter and dvdt/curv params
             for param in postcopy.params:
-                is_orbit_param = np.any([True if key in param else False for key in keys])
+                is_orbit_param = np.any(
+                    [True if key in param else False for key in keys]
+                )
                 if not is_orbit_param:
                     test_params[param] = postcopy.params[param]
                     res_params[param] = postcopy.params[param]
@@ -321,10 +351,14 @@ class Periodogram(object):
                 # Instrument's one sigma RV error
                 obs_err.append(instlike.yerr)
                 insts.append(np.repeat(instlike.suffix, len(instlike.x)))
-            basedata = pd.DataFrame({"time": pd.Series(np.concatenate(obs_times), dtype=float),
-                                    "mnvel": pd.Series(np.concatenate(real_obs_rv), dtype=float),
-                                    "errvel": pd.Series(np.concatenate(obs_err), dtype=float),
-                                    "tel": pd.Series(np.concatenate(insts), dtype=str)})
+            basedata = pd.DataFrame(
+                {
+                    "time": pd.Series(np.concatenate(obs_times), dtype=float),
+                    "mnvel": pd.Series(np.concatenate(real_obs_rv), dtype=float),
+                    "errvel": pd.Series(np.concatenate(obs_err), dtype=float),
+                    "tel": pd.Series(np.concatenate(insts), dtype=str),
+                }
+            )
             # Jitter estimate
             jity = np.std(basedata.mnvel)
 
@@ -337,25 +371,37 @@ class Periodogram(object):
                 res_obs_rv.append(instlike.residuals())
 
             # Dataframe with the residual data as the velocities
-            testdata = pd.DataFrame({"time": pd.Series(np.concatenate(obs_times), dtype=float),
-                                    "mnvel": pd.Series(np.concatenate(res_obs_rv), dtype=float),
-                                    "errvel": pd.Series(np.concatenate(obs_err), dtype=float),
-                                    "tel": pd.Series(np.concatenate(insts), dtype=str)})
+            testdata = pd.DataFrame(
+                {
+                    "time": pd.Series(np.concatenate(obs_times), dtype=float),
+                    "mnvel": pd.Series(np.concatenate(res_obs_rv), dtype=float),
+                    "errvel": pd.Series(np.concatenate(obs_err), dtype=float),
+                    "tel": pd.Series(np.concatenate(insts), dtype=str),
+                }
+            )
 
             # Add the test planet params to the test params
-            test_params[f'per{self.n_vary+1}'] = radvel.Parameter(value=100, vary=False)
-            test_params[f'tc{self.n_vary+1}'] = radvel.Parameter(value=np.median(basedata.time), vary=True)
-            test_params[f'k{self.n_vary+1}'] = radvel.Parameter(value=0, vary=True)
-            test_params[f'secosw{self.n_vary+1}'] = radvel.Parameter(value=0, vary=False)
-            test_params[f'sesinw{self.n_vary+1}'] = radvel.Parameter(value=0, vary=False)
+            test_params[f"per{self.n_vary+1}"] = radvel.Parameter(value=100, vary=False)
+            test_params[f"tc{self.n_vary+1}"] = radvel.Parameter(
+                value=np.median(basedata.time), vary=True
+            )
+            test_params[f"k{self.n_vary+1}"] = radvel.Parameter(value=0, vary=True)
+            test_params[f"secosw{self.n_vary+1}"] = radvel.Parameter(
+                value=0, vary=False
+            )
+            test_params[f"sesinw{self.n_vary+1}"] = radvel.Parameter(
+                value=0, vary=False
+            )
 
             # Create priors
             testpriors = []
-            testpriors.append(radvel.prior.PositiveKPrior(self.n_vary+1))
-            testpriors.append(radvel.prior.EccentricityPrior(self.n_vary+1))
+            testpriors.append(radvel.prior.PositiveKPrior(self.n_vary + 1))
+            testpriors.append(radvel.prior.EccentricityPrior(self.n_vary + 1))
 
             # Create posterior to use in the periodogram
-            testpost = utils.initialize_post(testdata, params=test_params, priors=testpriors, jitty=jity)
+            testpost = utils.initialize_post(
+                testdata, params=test_params, priors=testpriors, jitty=jity
+            )
             testpost = utils.trend_test(testpost)
 
             # Create the args tuple for the periodogram's objective function
@@ -374,14 +420,37 @@ class Periodogram(object):
             #     output.append(_obj(per, testpostcopy, baseline_bic, tmp_pdict, self.n_vary, floor, times))
 
         # For code profiling
-        # if nplan > 0:
-        #     output = []
         # output = []
-        # for per in self.pers[:10]:
-        #     output.append(_obj(per, testpostcopy, testpost.likelihood.bic(), tmp_pdict, nplan, floor, times))
-
+        # for i, per in enumerate(self.pers):
+        #     print(i)
+        #     output.append(_obj(per, *args))
+        print("0")
         output = []
-        func = _obj_wrapper(_obj, args)
+        # func = _obj_wrapper(_obj, args)
+        # func = lambda per: _obj(per, *args)
+        func = partial(
+            _obj,
+            post=postcopy,
+            baseline_bic=baseline_bic,
+            default_pdict=self.default_pdict,
+            nplan=self.num_known_planets,
+            floor=self.floor,
+            times=self.times,
+        )
+
+        # if self.verbose:
+        #     pbar = tqdm(total=len(self.pers))
+        # output = []
+        # with Pool(processes=self.workers) as pool:
+        #     for result in pool.imap_unordered(func, self.pers):
+        #         output.append(result)
+        #         if self.verbose:
+        #             pbar.update(1)
+        #
+        # if self.verbose:
+        #     pbar.close()
+
+        print("Done with periodogram")
         with MapWrapper(pool=self.workers) as mapper:
             output = mapper(func, self.pers)
 
@@ -391,85 +460,99 @@ class Periodogram(object):
         for chunk in output:
             all_bics.append(chunk[0])
             all_params.append(chunk[1])
-        self.bic = all_bics
-        self.fit_params = all_params
+        self.bic = list(all_bics)
+        self.fit_params = list(all_params)
 
         fit_index = np.argmax(np.nan_to_num(self.bic, nan=-np.inf))
         self.bestfit_params = self.fit_params[fit_index]
         self.best_bic = self.bic[fit_index]
-        self.power['bic'] = self.bic
-        if n_plans > self.n_vary+1:
-            original_params = {param_name:param.value for param_name, param in postcopy.params.items() if param_name not in [f"{key}{plstr}" for key in keys]}
+        self.power["bic"] = self.bic
+        if n_plans > self.n_vary + 1:
+            original_params = {
+                param_name: param.value
+                for param_name, param in postcopy.params.items()
+                if param_name not in [f"{key}{plstr}" for key in keys]
+            }
             # Replace the planets that were allowed to vary with the updated parameters
             for pind, test_param_n in filter_map.items():
                 for key in keys:
-                    original_params[f"{key}{pind}"] = self.bestfit_params[f"{key}{test_param_n}"]
+                    original_params[f"{key}{pind}"] = self.bestfit_params[
+                        f"{key}{test_param_n}"
+                    ]
 
             # Add the parameters of the new planet
             for key in keys:
                 # New planet is always the last key
-                original_params[f"{key}{n_plans}"] = self.bestfit_params[f"{key}{self.n_vary+1}"]
+                original_params[f"{key}{n_plans}"] = self.bestfit_params[
+                    f"{key}{self.n_vary+1}"
+                ]
             self.bestfit_params = original_params
-            if len([key for key, value in self.bestfit_params.items() if (('k' in key) and (value < 0))]) > 0:
+            if (
+                len(
+                    [
+                        key
+                        for key, value in self.bestfit_params.items()
+                        if (("k" in key) and (value < 0))
+                    ]
+                )
+                > 0
+            ):
                 breakpoint()
         # keys = ['per', 'tc', 'k', 'secosw', 'sesinw']
         # for nplan in range(1, num_known_planets):
         #     for key in keys:
         #         vind = self.post.vector.indices[f'{key}{plstr}']
         #         self.post.vector.vector[vind, 1] = False
-                
 
-        if self.verbose:
-            pbar.close()
+        # if self.verbose:
+        #     pbar.close()
 
     def ls(self):
-        """Compute Lomb-Scargle periodogram with astropy.
-
-        """
+        """Compute Lomb-Scargle periodogram with astropy."""
         # FOR TESTING
         print("Calculating Lomb-Scargle periodogram")
-        periodogram = astropy.stats.LombScargle(self.times, self.vel,
-                                                self.errvel)
+        periodogram = astropy.stats.LombScargle(self.times, self.vel, self.errvel)
         power = periodogram.power(np.flip(self.freqs))
-        self.power['ls'] = power
+        self.power["ls"] = power
 
     def eFAP(self):
         """Calculate the threshold for significance based on BJ's empirical
-            false-alarm-probability algorithm, and estimate the
-            false-alarm-probability of the DBIC global maximum.
+        false-alarm-probability algorithm, and estimate the
+        false-alarm-probability of the DBIC global maximum.
 
-            Modified version by JB Ruffio (2022-02-17) based on the integral of an exponential decay.
+        Modified version by JB Ruffio (2022-02-17) based on the integral of an exponential decay.
 
         """
-        sBIC = np.sort(self.power['bic'])
-        crop_BIC = sBIC[int(0.5 * len(sBIC)):int(0.95 * len(sBIC))]
+        sBIC = np.sort(self.power["bic"])
+        crop_BIC = sBIC[int(0.5 * len(sBIC)) : int(0.95 * len(sBIC))]
         med_BIC = crop_BIC[0]
 
-        hist, edge = np.histogram(crop_BIC-med_BIC, bins=10)
-        cent = (edge[1:] + edge[:-1]) / 2.
+        hist, edge = np.histogram(crop_BIC - med_BIC, bins=10)
+        cent = (edge[1:] + edge[:-1]) / 2.0
 
         loghist = np.log10(hist)
-        a,b = np.polyfit(cent[np.isfinite(loghist)], loghist[np.isfinite(loghist)], 1)
-        B=10**b
-        A=-a*np.log(10)
+        a, b = np.polyfit(cent[np.isfinite(loghist)], loghist[np.isfinite(loghist)], 1)
+        B = 10**b
+        A = -a * np.log(10)
 
-        self.bic_thresh = np.log(self.fap / self.num_pers) / (-A)+med_BIC
-        self.fap_min = np.exp(-A*(sBIC[-1]-med_BIC)) * self.num_pers
+        self.bic_thresh = np.log(self.fap / self.num_pers) / (-A) + med_BIC
+        self.fap_min = np.exp(-A * (sBIC[-1] - med_BIC)) * self.num_pers
 
     def save_per(self, filename, ls=False):
         df = pd.DataFrame([])
-        df['period'] = self.pers
+        df["period"] = self.pers
         if not ls:
             try:
-                np.savetxt((self.pers, self.power['bic']), filename=\
-                                                'BIC_periodogram.csv')
+                np.savetxt(
+                    (self.pers, self.power["bic"]), filename="BIC_periodogram.csv"
+                )
             except:
-                print('Have not generated a delta-BIC periodogram.')
+                print("Have not generated a delta-BIC periodogram.")
         else:
             try:
-                df['power'] = self.power['ls']
+                df["power"] = self.power["ls"]
             except KeyError:
-                print('Have not generated a Lomb-Scargle periodogram.')
+                print("Have not generated a Lomb-Scargle periodogram.")
 
     def plot_per(self, alias=True, floor=True, save=False):
         """Plot periodogram.
@@ -481,54 +564,63 @@ class Periodogram(object):
 
         """
         # TO-DO: WORK IN AIC/BIC OPTION, INCLUDE IN PLOT TITLE
-        peak = np.argmax(self.power['bic'])
+        peak = np.argmax(self.power["bic"])
         f_real = self.freqs[peak]
 
         fig, ax = plt.subplots()
-        ax.plot(self.pers, self.power['bic'])
-        ax.scatter(self.pers[peak], self.power['bic'][peak], label='{} days'\
-                            .format(np.round(self.pers[peak], decimals=1)))
+        ax.plot(self.pers, self.power["bic"])
+        ax.scatter(
+            self.pers[peak],
+            self.power["bic"][peak],
+            label="{} days".format(np.round(self.pers[peak], decimals=1)),
+        )
 
         # If DBIC threshold has been calculated, plot.
         if self.bic_thresh is not None:
-            ax.axhline(self.bic_thresh, ls=':', c='y', label='{} FAP'\
-                                                    .format(self.fap))
-            upper = 1.1*max(np.amax(self.power['bic']), self.bic_thresh)
+            ax.axhline(self.bic_thresh, ls=":", c="y", label="{} FAP".format(self.fap))
+            upper = 1.1 * max(np.amax(self.power["bic"]), self.bic_thresh)
         else:
-            upper = 1.1*np.amax(self.power['bic'])
+            upper = 1.1 * np.amax(self.power["bic"])
 
         if floor:
             # Set periodogram plot floor according to circular-fit BIC min.
             # Set this until we figure out how to fix known planet offset. 5/8
-            lower = max(self.floor, np.amin(self.power['bic']))
+            lower = max(self.floor, np.amin(self.power["bic"]))
         else:
-            lower = np.amin(self.power['bic'])
+            lower = np.amin(self.power["bic"])
 
         ax.set_ylim([lower, upper])
         ax.set_xlim([self.pers[0], self.pers[-1]])
 
         if alias:
             # Plot sidereal day, lunation period, and sidereal year aliases.
-            colors = ['r', 'b', 'g']
+            colors = ["r", "b", "g"]
             alias = [0.997, 29.531, 365.256]
-            if np.amin(self.pers) <= 1.:
+            if np.amin(self.pers) <= 1.0:
                 alii = np.arange(1, 3)
             else:
                 alii = np.arange(3)
             for i in alii:
-                f_ap = 1./alias[i] + f_real
-                f_am = 1./alias[i] - f_real
-                ax.axvline(1./f_am, linestyle='--', c=colors[i], alpha=0.5,
-                                label='{} day alias'.format(np.round(alias[i],
-                                decimals=1)))
-                ax.axvline(1./f_ap, linestyle='--', c=colors[i], alpha=0.5)
+                f_ap = 1.0 / alias[i] + f_real
+                f_am = 1.0 / alias[i] - f_real
+                ax.axvline(
+                    1.0 / f_am,
+                    linestyle="--",
+                    c=colors[i],
+                    alpha=0.5,
+                    label="{} day alias".format(np.round(alias[i], decimals=1)),
+                )
+                ax.axvline(1.0 / f_ap, linestyle="--", c=colors[i], alpha=0.5)
 
         ax.legend(loc=0)
-        ax.set_xscale('log')
-        ax.set_xlabel('Period (days)')
-        ax.set_ylabel(r'$\Delta$BIC')  # TO-DO: WORK IN AIC/BIC OPTION
-        ax.set_title('Planet {} vs. planet {}'.format(self.num_known_planets+1,
-                                                      self.num_known_planets))
+        ax.set_xscale("log")
+        ax.set_xlabel("Period (days)")
+        ax.set_ylabel(r"$\Delta$BIC")  # TO-DO: WORK IN AIC/BIC OPTION
+        ax.set_title(
+            "Planet {} vs. planet {}".format(
+                self.num_known_planets + 1, self.num_known_planets
+            )
+        )
 
         formatter = ticker.ScalarFormatter()
         formatter.set_scientific(False)
@@ -537,13 +629,13 @@ class Periodogram(object):
         # Store figure as object attribute, make separate saving functionality?
         self.fig = fig
         if save:
-            fig.savefig('dbic{}.pdf'.format(self.num_known_planets+1))
+            fig.savefig("dbic{}.pdf".format(self.num_known_planets + 1))
 
 
 def _obj(per, post, baseline_bic, default_pdict, nplan, floor, times):
-    '''
+    """
     Objective function for the BIC periodogram search
-    '''
+    """
     # post = copy.deepcopy(post)
     # Reset posterior parameters to default values.
     for k in default_pdict.keys():
@@ -570,9 +662,7 @@ def _obj(per, post, baseline_bic, default_pdict, nplan, floor, times):
         for k in default_pdict.keys():
             utils.set_post_param(newpost, k, default_pdict[k])
             # post.params[k].value = self.default_pdict[k]
-        veldiff = np.absolute(
-            newpost.likelihood.y - np.median(newpost.likelihood.y)
-        )
+        veldiff = np.absolute(newpost.likelihood.y - np.median(newpost.likelihood.y))
         tc_new = times[np.argmin(veldiff)]
         # post.params["tc{}".format(post.params.num_planets)].value = tc_new
         utils.set_post_param(newpost, f"tc{newpost.params.num_planets}", tc_new)
@@ -585,8 +675,8 @@ def _obj(per, post, baseline_bic, default_pdict, nplan, floor, times):
         best_params[k] = newpost.params[k].value
     fit_params = best_params
     # Append the best-fit parameters to the period-iterated list.
-    counter.value += 1
-    pbar.update_to(counter.value)
+    # counter.value += 1
+    # pbar.update_to(counter.value)
 
     return (bic, fit_params)
 

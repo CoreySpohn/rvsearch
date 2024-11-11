@@ -6,6 +6,7 @@ import scipy.special as spec
 from astropy import constants as c
 import pandas as pd
 import radvel
+
 try:
     import cpsutils
     from cpsutils import io
@@ -16,6 +17,7 @@ except:
 """Functions for posterior modification (resetting, intializing, etc.)
 """
 
+
 def GaussianDiffFunc(inp_list):
     """Function to use in the HIRES gamma offset prior.
     Args:
@@ -24,10 +26,11 @@ def GaussianDiffFunc(inp_list):
                         derived empirically from HIRES analysis.
 
     """
-    x     = inp_list[1] - inp_list[0]
-    mu    = 0.#inp_list[2]
-    sigma = 2.#inp_list[3]
-    return -0.5 * ((x - mu) / sigma)**2 - 0.5*np.log((sigma**2)*2.*np.pi)
+    x = inp_list[1] - inp_list[0]
+    mu = 0.0  # inp_list[2]
+    sigma = 2.0  # inp_list[3]
+    return -0.5 * ((x - mu) / sigma) ** 2 - 0.5 * np.log((sigma**2) * 2.0 * np.pi)
+
 
 def reset_params(post, default_pdict):
     # Reset post.params values to default values
@@ -35,16 +38,24 @@ def reset_params(post, default_pdict):
         post.params[k].value = default_pdict[k]
     return post
 
+
 def insolate(T, R, a):
     # Calculate stellar insolation.
-    return (T/5778)**4 * R**2 * a**-2
+    return (T / 5778) ** 4 * R**2 * a**-2
+
 
 def tequil(S, alb=0.3):
     # Calculate equilibrium temperature.
-    return S**-0.25 * ((1-alb)/4.)**0.25
+    return S**-0.25 * ((1 - alb) / 4.0) ** 0.25
 
-def initialize_default_pars(instnames=['inst'], times=None, linear=True,
-                            fitting_basis='per tc secosw sesinw k', jitty=2.):
+
+def initialize_default_pars(
+    instnames=["inst"],
+    times=None,
+    linear=True,
+    fitting_basis="per tc secosw sesinw k",
+    jitty=2.0,
+):
     """Set up a default Parameters object.
 
     None of the basis values are free params, for the initial 0-planet fit.
@@ -60,36 +71,36 @@ def initialize_default_pars(instnames=['inst'], times=None, linear=True,
         Parameters object
     """
 
-    anybasis_params = radvel.Parameters(num_planets=1, basis='per tc e w k')
+    anybasis_params = radvel.Parameters(num_planets=1, basis="per tc e w k")
 
     if times is None:
-        anybasis_params['tc1'] = radvel.Parameter(value=2455200.0)
+        anybasis_params["tc1"] = radvel.Parameter(value=2455200.0)
     else:
-        anybasis_params['tc1'] = radvel.Parameter(value=np.median(times))
-    anybasis_params['w1'] = radvel.Parameter(value=np.pi/2.)
-    anybasis_params['k1'] = radvel.Parameter(value=0.0)
-    anybasis_params['e1'] = radvel.Parameter(value=0.0)
-    anybasis_params['per1'] = radvel.Parameter(value=100.0)
+        anybasis_params["tc1"] = radvel.Parameter(value=np.median(times))
+    anybasis_params["w1"] = radvel.Parameter(value=np.pi / 2.0)
+    anybasis_params["k1"] = radvel.Parameter(value=0.0)
+    anybasis_params["e1"] = radvel.Parameter(value=0.0)
+    anybasis_params["per1"] = radvel.Parameter(value=100.0)
 
-    anybasis_params['dvdt'] = radvel.Parameter(value=0.0)
-    anybasis_params['curv'] = radvel.Parameter(value=0.0)
+    anybasis_params["dvdt"] = radvel.Parameter(value=0.0)
+    anybasis_params["curv"] = radvel.Parameter(value=0.0)
 
     for inst in instnames:
         if linear:
-            anybasis_params['gamma_'+inst] = radvel.Parameter(value=0.0,
-                                                              linear=True,
-                                                              vary=False)
+            anybasis_params["gamma_" + inst] = radvel.Parameter(
+                value=0.0, linear=True, vary=False
+            )
         else:
-            anybasis_params['gamma_'+inst] = radvel.Parameter(value=0.0)
-        anybasis_params['jit_'+inst] = radvel.Parameter(value=jitty)
+            anybasis_params["gamma_" + inst] = radvel.Parameter(value=0.0)
+        anybasis_params["jit_" + inst] = radvel.Parameter(value=jitty)
 
     params = anybasis_params.basis.to_any_basis(anybasis_params, fitting_basis)
 
-    params['secosw1'].vary = False
-    params['sesinw1'].vary = False
-    params['per1'].vary = False
-    params['dvdt'].vary = False
-    params['curv'].vary = False
+    params["secosw1"].vary = False
+    params["sesinw1"].vary = False
+    params["per1"].vary = False
+    params["dvdt"].vary = False
+    params["curv"].vary = False
 
     return params
 
@@ -108,29 +119,35 @@ def initialize_post(data, params=None, priors=[], linear=True, decorrs=None, jit
 
     if params is None:
         # params = radvel.Parameters(1, basis='per tc secosw sesinw logk')
-        params = initialize_default_pars(instnames=data.tel, times=data.time, jitty=jitty)
+        params = initialize_default_pars(
+            instnames=data.tel, times=data.time, jitty=jitty
+        )
     iparams = radvel.basis._copy_params(params)
 
     # Allow for time to be listed as 'time' or 'jd' (Julian Date).
-    if {'jd'}.issubset(data.columns):
-        data['time'] = data['jd']
+    if {"jd"}.issubset(data.columns):
+        data["time"] = data["jd"]
 
     # initialize RVModel
-    time_base = np.mean([data['time'].max(), data['time'].min()])
+    time_base = np.mean([data["time"].max(), data["time"].min()])
     mod = radvel.RVModel_c(params, time_base=time_base)
 
     # initialize Likelihood objects for each instrument
-    telgrps = data.groupby('tel').groups
+    telgrps = data.groupby("tel").groups
     likes = {}
 
     for inst in telgrps.keys():
         # 10/8: ADD DECORRELATION VECTORS AND VARS, ONLY FOR SELECTED INST.
         likes[inst] = radvel.likelihood.RVLikelihood(
-            mod, data.iloc[telgrps[inst]].time, data.iloc[telgrps[inst]].mnvel,
-            data.iloc[telgrps[inst]].errvel, suffix='_'+inst)
+            mod,
+            data.iloc[telgrps[inst]].time,
+            data.iloc[telgrps[inst]].mnvel,
+            data.iloc[telgrps[inst]].errvel,
+            suffix="_" + inst,
+        )
 
-        likes[inst].params['gamma_'+inst] = iparams['gamma_'+inst]
-        likes[inst].params['jit_'+inst] = iparams['jit_'+inst]
+        likes[inst].params["gamma_" + inst] = iparams["gamma_" + inst]
+        likes[inst].params["jit_" + inst] = iparams["jit_" + inst]
     # Can this be cleaner? like = radvel.likelihood.CompositeLikelihood(likes)
     like = radvel.likelihood.CompositeLikelihood(list(likes.values()))
 
@@ -140,13 +157,13 @@ def initialize_post(data, params=None, priors=[], linear=True, decorrs=None, jit
         priors.append(radvel.prior.EccentricityPrior(post.params.num_planets))
 
         if not linear:
-            if ('j' in telgrps.keys()) and ('k' in telgrps.keys()):
-                TexStr = 'Gaussian Prior on HIRES offset'
-                OffsetPrior = radvel.prior.UserDefinedPrior(['gamma_j', 'gamma_k'],
-                                                            GaussianDiffFunc,
-                                                            TexStr)
+            if ("j" in telgrps.keys()) and ("k" in telgrps.keys()):
+                TexStr = "Gaussian Prior on HIRES offset"
+                OffsetPrior = radvel.prior.UserDefinedPrior(
+                    ["gamma_j", "gamma_k"], GaussianDiffFunc, TexStr
+                )
                 priors.append(OffsetPrior)
-        #for inst in telgrps.keys():
+        # for inst in telgrps.keys():
         #    priors.append(radvel.prior.Jeffrey('jit_'+inst, 0.01, 20.0))
     post.priors = priors
 
@@ -221,9 +238,10 @@ def window(times, freqs, plot=False):
     """
     W = np.zeros(len(freqs))
     for i, freq in enumerate(freqs):
-        W[i] = np.absolute(np.sum(np.exp(-2*np.pi*1j*times*freq)))
+        W[i] = np.absolute(np.sum(np.exp(-2 * np.pi * 1j * times * freq)))
     W /= float(len(times))
     return W
+
 
 def read_from_csv(filename, binsize=0.0, verbose=True):
     """Read radial velocity data from a csv file into a Pandas dataframe.
@@ -235,25 +253,27 @@ def read_from_csv(filename, binsize=0.0, verbose=True):
 
     """
     data = pd.read_csv(filename)
-    if 'tel' not in data.columns:
+    if "tel" not in data.columns:
         if verbose:
-            print('Instrument types not given.')
-        data['tel'] = 'Inst'
+            print("Instrument types not given.")
+        data["tel"] = "Inst"
     if binsize > 0.0:
-        if 'time' in data.columns:
-            t = data['time'].values
-            tkey = 'time'
-        elif 'jd' in data.columns:
-            t = data['jd'].values
-            tkey = 'jd'
+        if "time" in data.columns:
+            t = data["time"].values
+            tkey = "time"
+        elif "jd" in data.columns:
+            t = data["jd"].values
+            tkey = "jd"
         else:
-            raise ValueError('Incorrect data input.')
-        time, mnvel, errvel, tel = radvel.utils.bintels(t, data['mnvel'].values,
-                                                        data['errvel'].values,
-                                                        data['tel'].values,
-                                                        binsize=binsize)
-        bin_dict = {tkey: time, 'mnvel': mnvel,
-                    'errvel': errvel, 'tel': tel}
+            raise ValueError("Incorrect data input.")
+        time, mnvel, errvel, tel = radvel.utils.bintels(
+            t,
+            data["mnvel"].values,
+            data["errvel"].values,
+            data["tel"].values,
+            binsize=binsize,
+        )
+        bin_dict = {tkey: time, "mnvel": mnvel, "errvel": errvel, "tel": tel}
         data = pd.DataFrame(data=bin_dict)
 
     return data
@@ -261,13 +281,13 @@ def read_from_csv(filename, binsize=0.0, verbose=True):
 
 def read_from_arrs(t, mnvel, errvel, tel=None, verbose=True):
     data = pd.DataFrame()
-    data['time'], data['mnvel'], data['errvel'] = t, mnvel, errvel
+    data["time"], data["mnvel"], data["errvel"] = t, mnvel, errvel
     if tel == None:
         if verbose:
-            print('Instrument type not given.')
-        data['tel'] = 'Inst'
+            print("Instrument type not given.")
+        data["tel"] = "Inst"
     else:
-        data['tel'] = tel
+        data["tel"] = tel
     return data
 
 
@@ -284,15 +304,14 @@ def read_from_vst(filename, verbose=True):
     """
     b = io.read_vst(filename)
     data = pd.DataFrame()
-    data['time'] = b.jd
-    data['mnvel'] = b.mnvel
-    data['errvel'] = b.errvel
-    data['tel'] = 'HIRES'
+    data["time"] = b.jd
+    data["mnvel"] = b.mnvel
+    data["errvel"] = b.errvel
+    data["tel"] = "HIRES"
 
-    data.to_csv(filename[:-3]+'csv')
+    data.to_csv(filename[:-3] + "csv")
 
     return data
-
 
 
 def cartesian_product(*arrays):
@@ -316,7 +335,7 @@ def cartesian_product(*arrays):
 
 
 # Test search-specific priors
-def betafunc(x, a=0.867, b=3.03):#inp_list):
+def betafunc(x, a=0.867, b=3.03):  # inp_list):
     """Function to use in the HIRES gamma offset prior.
     Args:
         inp_list(list): pair of floats, the difference of which we want to
@@ -324,10 +343,17 @@ def betafunc(x, a=0.867, b=3.03):#inp_list):
                         derived empirically from HIRES analysis.
 
     """
-    #x = inp_list[0]
-    #a = inp_list[1]
-    #b = inp_list[2]
-    return spec.gamma(a+b)/(spec.gamma(a)*spec.gamma(b))*x**(a-1)*(1-x)**(b-1)
+    # x = inp_list[0]
+    # a = inp_list[1]
+    # b = inp_list[2]
+    return (
+        spec.gamma(a + b)
+        / (spec.gamma(a) * spec.gamma(b))
+        * x ** (a - 1)
+        * (1 - x) ** (b - 1)
+    )
+
+
 '''
 class Beta(Prior):
     """Beta prior
@@ -364,6 +390,7 @@ class Beta(Prior):
         return s
 '''
 
+
 def derive(post, synthchains, mstar, mstar_err=0.0):
     """Derive physical parameters from posterior samples
 
@@ -375,71 +402,72 @@ def derive(post, synthchains, mstar, mstar_err=0.0):
     """
 
     try:
-        mstar = np.random.normal(
-            loc=mstar, scale=mstar_err,
-            size=len(synthchains)
-        )
+        mstar = np.random.normal(loc=mstar, scale=mstar_err, size=len(synthchains))
     except AttributeError:
-        print("Unable to calculate derived parameters, stellar parameters not defined the config file.")
+        print(
+            "Unable to calculate derived parameters, stellar parameters not defined the config file."
+        )
         return
 
     if (mstar <= 0.0).any():
         num_nan = np.sum(mstar <= 0.0)
         nan_perc = float(num_nan) / len(synthchains)
         mstar[mstar <= 0] = np.abs(mstar[mstar <= 0])
-        print("WARNING: {} ({:.2f} %) of Msini samples are NaN. The stellar mass posterior may contain negative \
-values. Interpret posterior with caution.".format(num_nan, nan_perc))
+        print(
+            "WARNING: {} ({:.2f} %) of Msini samples are NaN. The stellar mass posterior may contain negative \
+values. Interpret posterior with caution.".format(num_nan, nan_perc)
+        )
 
     outcols = []
     for i in np.arange(1, post.params.num_planets + 1, 1):
         # Grab parameters from the chain
         def _has_col(key):
             cols = list(synthchains.columns)
-            return cols.count('{}{}'.format(key, i)) == 1
+            return cols.count("{}{}".format(key, i)) == 1
 
         def _get_param(key):
             if _has_col(key):
-                return synthchains['{}{}'.format(key, i)]
+                return synthchains["{}{}".format(key, i)]
             else:
-                return post.params['{}{}'.format(key, i)].value
+                return post.params["{}{}".format(key, i)].value
 
         def _set_param(key, value):
-            synthchains['{}{}'.format(key, i)] = value
+            synthchains["{}{}".format(key, i)] = value
 
         def _get_colname(key):
-            return '{}{}'.format(key, i)
+            return "{}{}".format(key, i)
 
-        per = _get_param('per')
-        k = _get_param('k')
-        e = _get_param('e')
+        per = _get_param("per")
+        k = _get_param("k")
+        e = _get_param("e")
 
-        mpsini = radvel.utils.Msini(k, per, mstar, e, Msini_units='earth')
-        _set_param('mpsini', mpsini)
-        outcols.append(_get_colname('mpsini'))
+        mpsini = radvel.utils.Msini(k, per, mstar, e, Msini_units="earth")
+        _set_param("mpsini", mpsini)
+        outcols.append(_get_colname("mpsini"))
         low, med, high = np.quantile(mpsini, [0.159, 0.5, 0.841])
-        post.medparams[_get_colname('mpsini')] = med
-        post.uparams[_get_colname('mpsini')+'_err1'] = low-med
-        post.uparams[_get_colname('mpsini')+'_err2'] = high-med
+        post.medparams[_get_colname("mpsini")] = med
+        post.uparams[_get_colname("mpsini") + "_err1"] = low - med
+        post.uparams[_get_colname("mpsini") + "_err2"] = high - med
 
-        mtotal = mstar + (mpsini * c.M_earth.value) / c.M_sun.value  # get total star plus planet mass
+        mtotal = (
+            mstar + (mpsini * c.M_earth.value) / c.M_sun.value
+        )  # get total star plus planet mass
         a = radvel.utils.semi_major_axis(per, mtotal)  # changed from mstar to mtotal
 
-        _set_param('a', a)
-        outcols.append(_get_colname('a'))
+        _set_param("a", a)
+        outcols.append(_get_colname("a"))
         low, med, high = np.quantile(a, [0.159, 0.5, 0.841])
-        post.medparams[_get_colname('a')] = med
-        post.uparams[_get_colname('a')+'_err1'] = low-med
-        post.uparams[_get_colname('a')+'_err2'] = high-med
-
+        post.medparams[_get_colname("a")] = med
+        post.uparams[_get_colname("a") + "_err1"] = low - med
+        post.uparams[_get_colname("a") + "_err2"] = high - med
 
         musini = (mpsini * c.M_earth) / (mstar * c.M_sun)
-        _set_param('musini', musini)
-        outcols.append(_get_colname('musini'))
+        _set_param("musini", musini)
+        outcols.append(_get_colname("musini"))
         med, low, high = np.quantile(musini, [0.159, 0.5, 0.841])
-        post.medparams[_get_colname('musini')] = med
-        post.uparams[_get_colname('musini')+'_err1'] = low-med
-        post.uparams[_get_colname('musini')+'_err2'] = high-med
-
+        post.medparams[_get_colname("musini")] = med
+        post.uparams[_get_colname("musini") + "_err1"] = low - med
+        post.uparams[_get_colname("musini") + "_err2"] = high - med
 
     print("Derived parameters:", outcols)
 
@@ -452,40 +480,38 @@ def set_post_param(post, param_name, val):
 
 
 def trend_test(post):
-    """Perform zero-planet baseline fit, test for significant trend.
-
-    """
+    """Perform zero-planet baseline fit, test for significant trend."""
     post1 = copy.deepcopy(post)
     # Fix all Keplerian parameters. K is zero, equivalent to no planet.
-    post1.params['k1'].vary      = False
-    post1.params['tc1'].vary     = False
-    post1.params['per1'].vary    = False
-    post1.params['secosw1'].vary = False
-    post1.params['sesinw1'].vary = False
-    post1.params['dvdt'].vary    = True
-    post1.params['curv'].vary    = True
+    post1.params["k1"].vary = False
+    post1.params["tc1"].vary = False
+    post1.params["per1"].vary = False
+    post1.params["secosw1"].vary = False
+    post1.params["sesinw1"].vary = False
+    post1.params["dvdt"].vary = True
+    post1.params["curv"].vary = True
     post1 = radvel.fitting.maxlike_fitting(post1, verbose=False)
 
     trend_curve_bic = post1.likelihood.bic()
 
     # Test without curvature
     post2 = copy.deepcopy(post1)
-    post2.params['curv'].value = 0.0
-    post2.params['curv'].vary  = False
+    post2.params["curv"].value = 0.0
+    post2.params["curv"].vary = False
     post2 = radvel.fitting.maxlike_fitting(post2, verbose=False)
 
     trend_bic = post2.likelihood.bic()
 
     # Test without trend or curvature
     post3 = copy.deepcopy(post2)
-    post3.params['dvdt'].value = 0.0
-    post3.params['dvdt'].vary  = False
-    post3.params['curv'].value = 0.0
-    post3.params['curv'].vary  = False
+    post3.params["dvdt"].value = 0.0
+    post3.params["dvdt"].vary = False
+    post3.params["curv"].value = 0.0
+    post3.params["curv"].vary = False
 
     flat_bic = post3.likelihood.bic()
 
-    keys = ['dvdt', 'curv']
+    keys = ["dvdt", "curv"]
     if (trend_bic < flat_bic - 5) or (trend_curve_bic < flat_bic - 5):
         if trend_curve_bic < trend_bic - 5:
             # Quadratic
@@ -495,10 +521,10 @@ def trend_test(post):
                 post.vector.vector[vind, 1] = post1.vector.vector[key, 1]
         else:
             # Linear
-            vind_dvdt = post.vector.indices['dvdt']
+            vind_dvdt = post.vector.indices["dvdt"]
             post.vector.vector[vind_dvdt, 0] = post2.params["dvdt"].value
             post.vector.vector[vind_dvdt, 1] = True
-            vind_curv = post.vector.indices['curv']
+            vind_curv = post.vector.indices["curv"]
             post.vector.vector[vind_curv, 0] = 0
             post.vector.vector[vind_curv, 1] = False
     else:
